@@ -8,7 +8,7 @@ import threading
 import time
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from .discovery import GitHubClient, discover, run_wanderer
 from .dashboard import DASHBOARD_HTML
@@ -119,6 +119,16 @@ class Dashboard(BaseHTTPRequestHandler):
             return
         if path == "/api/config":
             self._send_json(self.state.snapshot()["config"])
+            return
+        if path == "/api/db/inspect":
+            query = parse_qs(urlparse(self.path).query)
+            status = query.get("status", ["failed"])[0]
+            try:
+                rows = self.store.query_status(status, limit=50)
+            except ValueError:
+                self.send_error(400, "unsupported queue status")
+                return
+            self._send_json(rows)
             return
         if path == "/api/system/status":
             started = time.monotonic()

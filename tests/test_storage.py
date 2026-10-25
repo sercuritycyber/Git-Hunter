@@ -53,6 +53,31 @@ def test_pending_count_only_counts_pending_items(tmp_path):
     assert store.pending_count() == 1
 
 
+def test_query_status_filters_and_bounds_queue_records(tmp_path):
+    store = Store(tmp_path / "inspect.db")
+    store.enqueue("https://github.com/a/one", "a/one", 1)
+    store.enqueue("https://github.com/a/two", "a/two", 2)
+    claimed = store.claim_next()
+    assert claimed is not None
+    store.fail(claimed["id"])
+
+    failed = store.query_status("failed")
+    assert len(failed) == 1
+    assert failed[0]["full_name"] in {"a/one", "a/two"}
+    assert len(store.query_status("pending", limit=0)) == 1
+
+
+def test_query_status_rejects_arbitrary_status(tmp_path):
+    store = Store(tmp_path / "inspect-invalid.db")
+
+    try:
+        store.query_status("drop table queue")
+    except ValueError as error:
+        assert str(error) == "unsupported queue status"
+    else:
+        raise AssertionError("unsupported status should be rejected")
+
+
 def test_concurrent_claims_do_not_claim_the_same_item(tmp_path):
     store = Store(tmp_path / "concurrent.db")
     store.enqueue("https://github.com/a/only", "a/only", 1)

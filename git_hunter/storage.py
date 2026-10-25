@@ -211,6 +211,24 @@ class Store:
     def queue_item(self, repo_id: int) -> dict[str, Any] | None:
         return self._one(self.client.execute("SELECT * FROM queue WHERE id=?", (repo_id,)))
 
+    def query_status(self, status: str, limit: int = 50) -> list[dict[str, Any]]:
+        allowed_statuses = {
+            "pending",
+            "scanning",
+            "completed",
+            "failed",
+            "malicious_confirmed",
+            "safe",
+        }
+        if status not in allowed_statuses:
+            raise ValueError("unsupported queue status")
+        bounded_limit = max(1, min(int(limit), 200))
+        return self._rows(self.client.execute(
+            "SELECT id, url, full_name, status, priority FROM queue "
+            "WHERE status = ? ORDER BY id DESC LIMIT ?",
+            (status, bounded_limit),
+        ))
+
     def queue_stats(self) -> dict[str, int]:
         rows = self._rows(self.client.execute("SELECT status, COUNT(*) AS count FROM queue GROUP BY status"))
         stats = {str(row["status"]): int(row["count"]) for row in rows}
