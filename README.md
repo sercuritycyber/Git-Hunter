@@ -1,6 +1,6 @@
 # Git-Hunter
 
-Git-Hunter is a local-first GitHub repository triage pipeline. It discovers small, recently active repositories, queues them in SQLite (compatible with a Turso/libSQL migration path), runs deterministic Python analysis, and exposes reports for human review.
+Git-Hunter is a local-first GitHub repository triage pipeline for an isolated worker VM. It discovers small, recently active repositories, queues them in SQLite/libSQL-compatible storage, analyzes raw Python sources in memory, and exposes reports for human review.
 
 ## Quick start
 
@@ -16,14 +16,16 @@ git-hunter worker --once
 git-hunter dashboard
 ```
 
-Open `http://127.0.0.1:8080`. The local database is `data/git_hunter.db`; reports are written to `reports/`.
+Open `http://127.0.0.1:8080`. The local database is `data/git_hunter.db`; Markdown reports are written to `reports/`. Set `COLD_STORAGE_PATH=/mnt/quarantine` for the Proxmox cold-storage mount.
 
 ## Current scope
 
 - GitHub Search API discovery with author repositories and forks added to the queue.
-- SQLite queue with atomic claims, scan results, and human review overrides.
-- Deterministic Python AST checks for execution, network, decoding, and dynamic-import sinks.
+- SQLite/libSQL-compatible queue with atomic claims, scan results, provenance, and human review states.
+- Deterministic Python AST data-flow checks for high-entropy Base64 payloads reaching execution or network sinks.
+- Malformed Python is retained as a +50 anomaly finding instead of being silently discarded.
+- GitHub Search calls are paced at 6.5 seconds, with `Retry-After` and `x-ratelimit-reset` backoff handling.
 - Optional Claude CLI enrichment with a five-second timeout and failure isolation.
-- JSON API and lightweight review dashboard. A malicious confirmation, rather than the worker, snapshots the repository as a zipball into `COLD_STORAGE_PATH` (default `cold_storage`) when `GITHUB_TOKEN` is configured.
+- JSON API and lightweight review dashboard. A malicious confirmation, rather than the worker, streams the repository zipball into `COLD_STORAGE_PATH` (default `/mnt/quarantine`).
 
-The worker currently analyzes Python files fetched from a repository zipball. Bash and JavaScript analyzers are intentionally separate follow-up slices so each parser can be tested independently.
+The worker analyzes Python files fetched through the GitHub tree and raw-content APIs; it never clones or snapshots code during analysis. Bash and JavaScript analyzers are intentionally separate follow-up slices so each parser can be tested independently.

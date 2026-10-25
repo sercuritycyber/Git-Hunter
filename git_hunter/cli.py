@@ -2,109 +2,117 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
-import urllib.request
-import zipfile
+import logging
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
+from urllib.parse import urlparse
 
-from .analyzer import analyze_python_sources, markdown_report
-from .discovery import GitHubClient, discover
-from .enrichment import enrich
+from .discovery import discover
+from .snapshotter import snapshot_repository
 from .storage import Store
+from .worker import run_worker
 
 
-def _snapshot(url: str, directory: str) -> None:
-    request = urllib.request.Request(url.replace("github.com/", "api.github.com/repos/") + "/zipball")
-    if os.getenv("GITHUB_TOKEN"):
-        request.add_header("Authorization", f"Bearer {os.environ['GITHUB_TOKEN']}")
-    with urllib.request.urlopen(request, timeout=30) as response, zipfile.ZipFile(response) as archive:
-        archive.extractall(directory)
-
-
-def run_worker(store: Store, once: bool) -> None:
-    client = GitHubClient()
-    while True:
-        row = store.claim_next()
-        if not row:
-            return
-        try:
-            if not row["full_name"]:
-                raise ValueError("Queued repository is missing full_name")
-            result = analyze_python_sources(client.python_sources(row["full_name"]))
-            ai_analysis = enrich(json.dumps(result))
-            report = markdown_report(row["full_name"], result, ai_analysis)
-            Path("reports").mkdir(exist_ok=True)
-            Path("reports", f"{row['id']}.md").write_text(report, encoding="utf-8")
-            store.save_result(row["id"], result, report, ai_analysis)
-        except Exception:
-            store.fail(row["id"])
-        if once:
-            return
+LOGGER = logging.getLogger(__name__)
 
 
 class Dashboard(BaseHTTPRequestHandler):
     store = Store()
-    client = GitHubClient()
+
+    def _send_json(self, payload: object, status: int = 200) -> None:
+        body = json.dumps(payload).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def do_GET(self) -> None:
-        if self.path == "/api/reports":
-            payload = [dict(row) for row in self.store.reports()]
-            body = json.dumps(payload).encode()
-            self.send_response(200); self.send_header("Content-Type", "application/json"); self.end_headers(); self.wfile.write(body); return
-            body = b"""<html><body><h1>Git-Hunter review queue</h1><div id='reports'></div>
+        path = urlparse(self.path).path
+        if path == "/api/reports":
+            self._send_json([dict(row) for row in self.store.reports()])
+            return
+        if path.startswith("/api/reports/"):
+            try:
+                report = self.store.report(int(path.rsplit("/", 1)[1]))
+            except ValueError:
+                report = None
+            if not report:
+                self.send_error(404)
+                return
+            self._send_json(dict(report))
+            return
+        body = b"""<!doctype html><html><body><h1>Git-Hunter review queue</h1>
+<p>High-score reports: <a href='/api/reports'>JSON API</a></p><div id='reports'></div>
 <script>
 async function load() {
-    const reports = await (await fetch('/api/reports')).json();
-    document.getElementById('reports').innerHTML = reports.map(r =>
-        `<article><h2>${r.full_name || r.url}</h2><p>Score: ${r.anomaly_score ?? 'pending'}</p>
-        <button onclick="review(${r.id}, 'malicious')">Confirm Malicious</button>
-        <button onclick="review(${r.id}, 'safe')">Mark Safe</button></article>`).join('');
+  const reports = await (await fetch('/api/reports')).json();
+  document.getElementById('reports').innerHTML = reports.map(r =>
+    `<article><h2><a href='${r.html_url}'>${r.full_name}</a></h2><p>Score: ${r.anomaly_score}</p>
+    <pre>${r.markdown}</pre><p>${r.ai_summary || 'AI summary unavailable'}</p>
+    <button onclick="review(${r.id}, 'marked_safe')">Mark as Safe</button>
+    <button onclick="review(${r.id}, 'confirmed_malicious')">Confirm Malicious &amp; Quarantine</button></article>`).join('');
 }
-async function review(id, decision) {
-    await fetch(`/api/review/${id}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({decision})});
-    load();
+async function review(id, status) {
+  await fetch(`/api/review/${id}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({status})});
+  load();
 }
 load();
 </script></body></html>"""
-        self.send_response(200); self.send_header("Content-Type", "text/html"); self.end_headers(); self.wfile.write(body)
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def do_POST(self) -> None:
-        parts = self.path.strip("/").split("/")
-        if len(parts) == 3 and parts[0] == "api" and parts[1] == "review":
-            length = int(self.headers.get("Content-Length", 0)); decision = json.loads(self.rfile.read(length))["decision"]
-            repo_id = int(parts[2])
-            if decision not in {"malicious", "safe"}:
-                self.send_error(400, "decision must be malicious or safe")
+        path = urlparse(self.path).path
+        if not path.startswith("/api/review/"):
+            self.send_error(404)
+            return
+        try:
+            repo_id = int(path.rsplit("/", 1)[1])
+            length = int(self.headers.get("Content-Length", "0"))
+            status = json.loads(self.rfile.read(length))["status"]
+        except (ValueError, KeyError, json.JSONDecodeError):
+            self.send_error(400, "invalid review request")
+            return
+        if status not in {"marked_safe", "confirmed_malicious"}:
+            self.send_error(400, "status must be marked_safe or confirmed_malicious")
+            return
+        row = self.store.queue_item(repo_id)
+        if not row:
+            self.send_error(404)
+            return
+        snapshot_path = None
+        if status == "confirmed_malicious":
+            try:
+                snapshot_path = snapshot_repository(row["full_name"])
+            except Exception as error:
+                LOGGER.exception("[-] Could not quarantine %s", row["full_name"])
+                self.send_error(502, str(error))
                 return
-            row = self.store.queue_item(repo_id)
-            if not row:
-                self.send_error(404)
-                return
-            self.store.review(repo_id, decision)
-            if decision == "malicious":
-                try:
-                    name = (row["full_name"] or f"repo-{repo_id}").replace("/", "_")
-                    target = Path(os.getenv("COLD_STORAGE_PATH", "cold_storage")) / f"{repo_id}-{name}"
-                    target.mkdir(parents=True, exist_ok=True)
-                    _snapshot(row["url"], str(target))
-                except Exception as error:
-                    self.send_error(502, f"snapshot failed: {error}")
-                    return
-            self.send_response(204); self.end_headers(); return
-        self.send_error(404)
+        self.store.review(row["full_name"], status, snapshot_path)
+        self._send_json({"status": status, "snapshot_path": snapshot_path}, 200)
 
 
 def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
     parser = argparse.ArgumentParser(prog="git-hunter")
     parser.add_argument("--db", default="data/git_hunter.db")
     sub = parser.add_subparsers(dest="command", required=True)
-    found = sub.add_parser("discover"); found.add_argument("--query", required=True); found.add_argument("--limit", type=int, default=10)
-    worker = sub.add_parser("worker"); worker.add_argument("--once", action="store_true")
-    dashboard = sub.add_parser("dashboard"); dashboard.add_argument("--port", type=int, default=8080)
-    args = parser.parse_args(); store = Store(args.db)
-    if args.command == "discover": print(f"Queued {discover(store, args.query, args.limit)} repositories")
-    elif args.command == "worker": run_worker(store, args.once)
+    found = sub.add_parser("discover")
+    found.add_argument("--query", required=True)
+    found.add_argument("--limit", type=int, default=10)
+    worker = sub.add_parser("worker")
+    worker.add_argument("--once", action="store_true")
+    dashboard = sub.add_parser("dashboard")
+    dashboard.add_argument("--port", type=int, default=8080)
+    args = parser.parse_args()
+    store = Store(args.db)
+    if args.command == "discover":
+        print(f"Queued {discover(store, args.query, args.limit)} repositories")
+    elif args.command == "worker":
+        run_worker(store, once=args.once)
     else:
         Dashboard.store = store
         ThreadingHTTPServer(("127.0.0.1", args.port), Dashboard).serve_forever()
