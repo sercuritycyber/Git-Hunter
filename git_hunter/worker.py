@@ -101,13 +101,26 @@ def run_worker(
         processed = process_next(store, client, progress, extensions)
         if once:
             return
-        wait_seconds = interval_seconds() if callable(interval_seconds) else interval_seconds
-        LOGGER.info("[*] Waiting %.0f seconds before the next scan", wait_seconds)
-        if shutdown_event is not None and hasattr(shutdown_event, "wait"):
-            shutdown_event.wait(wait_seconds)
-        elif run_event is not None and hasattr(run_event, "wait"):
-            run_event.wait(wait_seconds)
-        else:
-            time.sleep(wait_seconds)
+        wait_seconds = (
+            5.0
+            if processed
+            else (interval_seconds() if callable(interval_seconds) else interval_seconds)
+        )
+        LOGGER.info(
+            "[*] Waiting %.0f seconds before the next scan%s",
+            wait_seconds,
+            " (queue cooldown)" if processed else "",
+        )
+        deadline = time.monotonic() + wait_seconds
+        while time.monotonic() < deadline:
+            if shutdown_event is not None and shutdown_event.is_set():
+                break
+            if run_event is not None and not run_event.is_set():
+                break
+            remaining = deadline - time.monotonic()
+            if shutdown_event is not None and hasattr(shutdown_event, "wait"):
+                shutdown_event.wait(min(0.25, remaining))
+            else:
+                time.sleep(min(0.25, remaining))
         if not processed and run_event is None and shutdown_event is None:
             return
