@@ -12,7 +12,6 @@ class Signature:
 
 
 NETWORK_CALLBACKS = {
-    "discord_webhook": "discord.com/api/webhooks",
     "pastebin_raw": "pastebin.com/raw/",
     "ngrok": "ngrok.io",
     "transfer_sh": "transfer.sh",
@@ -30,6 +29,26 @@ SIGNATURES = (
         80,
     ),
     Signature(
+        "Python reverse shell socket",
+        re.compile(r"import\s+socket.*subprocess\.dup2"),
+        80,
+    ),
+    Signature(
+        "Discord webhook exfiltration",
+        re.compile(r"https://discord\.com/api/webhooks/\d+/[A-Za-z0-9_-]+"),
+        60,
+    ),
+    Signature(
+        "Discord webhook callback",
+        re.compile(r"discord\.com/api/webhooks(?!/\d+/)", re.IGNORECASE),
+        60,
+    ),
+    Signature(
+        "Telegram bot API exfiltration",
+        re.compile(r"https://api\.telegram\.org/bot[0-9]+:[A-Za-z0-9_-]+/sendMessage"),
+        60,
+    ),
+    Signature(
         "PowerShell WebClient download",
         re.compile(r"Net\.WebClient\)\.DownloadString"),
         80,
@@ -42,12 +61,12 @@ SIGNATURES = (
     Signature(
         "Hex escape density",
         re.compile(r"(?:\\x[0-9a-fA-F]{2}){10,}"),
-        30,
+        40,
     ),
     Signature(
         "chr concatenation obfuscation",
         re.compile(r"(?:chr\(\d+\)\.){5,}"),
-        30,
+        40,
     ),
 )
 

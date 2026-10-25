@@ -50,3 +50,13 @@ def test_static_signature_score_caps_with_behavioral_findings():
     assert result["anomaly_score"] == 100
     assert any(item["kind"] == "traced_execution_sink" for item in result["findings"])
     assert any(item["kind"] == "static_signature_match" for item in result["findings"])
+
+
+def test_annotated_python_assignments_are_tracked():
+    blob = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/" * 2
+    result = analyze_python_sources({
+        "annotated.py": f"payload: str = base64.b64decode('{blob}')\nexec(payload)\n",
+    })
+
+    assert result["anomaly_score"] == 75
+    assert result["findings"][0]["kind"] == "traced_execution_sink"

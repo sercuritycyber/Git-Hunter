@@ -18,6 +18,20 @@ LOGGER = logging.getLogger(__name__)
 DAILY_SCAN_INTERVAL = 24 * 60 * 60 / 15
 
 
+def _wait_for_control(
+    run_event: object | None,
+    shutdown_event: object | None,
+    seconds: float,
+) -> None:
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if shutdown_event is not None and shutdown_event.is_set():
+            return
+        if run_event is not None and not run_event.is_set():
+            return
+        time.sleep(min(0.25, deadline - time.monotonic()))
+
+
 def analyze_repository_sources(sources: dict[str, str]) -> dict[str, object]:
     python_sources = {path: source for path, source in sources.items() if path.endswith(".py")}
     bash_sources = {path: source for path, source in sources.items() if path.endswith((".sh", ".bash"))}
@@ -105,9 +119,4 @@ def run_worker(
         if once:
             return
         wait_seconds = 1.0 if processed else 5.0
-        if shutdown_event is not None and hasattr(shutdown_event, "wait"):
-            shutdown_event.wait(wait_seconds)
-        elif run_event is not None and hasattr(run_event, "wait"):
-            run_event.wait(wait_seconds)
-        else:
-            time.sleep(wait_seconds)
+        _wait_for_control(run_event, shutdown_event, wait_seconds)

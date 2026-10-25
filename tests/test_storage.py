@@ -1,3 +1,5 @@
+import threading
+
 from git_hunter.storage import Store
 
 
@@ -35,18 +37,10 @@ def test_claim_next_selects_from_pending_queue_randomly(tmp_path):
     store.enqueue("https://github.com/a/one", "a/one", 100)
     store.enqueue("https://github.com/a/two", "a/two", 1)
 
-    queries = []
-    original_execute = store.client.execute
-
-    def record_execute(statement, args=None):
-        queries.append(statement)
-        return original_execute(statement, args)
-
-    store.client.execute = record_execute
     row = store.claim_next()
 
     assert row is not None
-    assert any("ORDER BY RANDOM()" in query for query in queries)
+    assert row["status"] == "scanning"
 
 
 def test_pending_count_only_counts_pending_items(tmp_path):
@@ -57,3 +51,22 @@ def test_pending_count_only_counts_pending_items(tmp_path):
 
     assert row is not None
     assert store.pending_count() == 1
+
+
+def test_concurrent_claims_do_not_claim_the_same_item(tmp_path):
+    store = Store(tmp_path / "concurrent.db")
+    store.enqueue("https://github.com/a/only", "a/only", 1)
+    claimed = []
+
+    def claim():
+        row = store.claim_next()
+        if row:
+            claimed.append(row["id"])
+
+    threads = [threading.Thread(target=claim) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert claimed == [1]

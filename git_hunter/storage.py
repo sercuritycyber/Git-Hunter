@@ -48,6 +48,7 @@ class Store:
         self.database_url = url
         self._auth_token = token
         self.auth_token_configured = bool(token)
+        self._claim_lock = threading.Lock()
         try:
             self.client = self._create_client(url, token)
         except Exception as error:
@@ -155,13 +156,31 @@ class Store:
         return int(row["count"]) if row else 0
 
     def claim_next(self) -> dict[str, Any] | None:
-        row = self._one(self.client.execute(
-            "SELECT * FROM queue WHERE status='pending' ORDER BY RANDOM() LIMIT 1"
-        ))
-        if row:
-            self.client.execute("UPDATE queue SET status='scanning' WHERE id=?", (row["id"],))
-            row = self._one(self.client.execute("SELECT * FROM queue WHERE id=?", (row["id"],)))
-        return row
+        with self._claim_lock:
+            while True:
+                transaction = self.client.transaction()
+                try:
+                    row = self._one(transaction.execute(
+                        "SELECT * FROM queue WHERE status='pending' ORDER BY RANDOM() LIMIT 1"
+                    ))
+                    if not row:
+                        transaction.rollback()
+                        return None
+                    updated = transaction.execute(
+                        "UPDATE queue SET status='scanning' WHERE id=? AND status='pending'",
+                        (row["id"],),
+                    )
+                    if updated.rows_affected != 1:
+                        transaction.rollback()
+                        continue
+                    transaction.commit()
+                    row["status"] = "scanning"
+                    return row
+                except Exception:
+                    transaction.rollback()
+                    raise
+                finally:
+                    transaction.close()
 
     def save_result(self, repo_id: int, result: dict[str, Any], markdown_report: str) -> None:
         self.client.execute(

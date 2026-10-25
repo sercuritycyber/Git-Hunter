@@ -59,12 +59,20 @@ class PythonAnalyzer(ast.NodeVisitor):
     def visit_Assign(self, node: ast.Assign) -> Any:
         payload = self._payload_metadata(node.value)
         for target in node.targets:
-            if isinstance(target, ast.Name):
-                if payload:
-                    self.tracked_vars[target.id] = payload
-                else:
-                    self.tracked_vars.pop(target.id, None)
+            self._set_target(target, payload)
         self.generic_visit(node)
+
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> Any:
+        self._set_target(node.target, self._payload_metadata(node.value) if node.value else None)
+        self.generic_visit(node)
+
+    def _set_target(self, target: ast.AST, payload: dict[str, Any] | None) -> None:
+        if not isinstance(target, ast.Name):
+            return
+        if payload:
+            self.tracked_vars[target.id] = payload
+        else:
+            self.tracked_vars.pop(target.id, None)
 
     def visit_Call(self, node: ast.Call) -> Any:
         name = self._call_name(node)
