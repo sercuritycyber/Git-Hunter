@@ -28,3 +28,22 @@ def test_local_database_creates_missing_parent_directory(tmp_path):
     assert store.client.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='queue'"
     ).rows
+
+
+def test_claim_next_selects_from_pending_queue_randomly(tmp_path):
+    store = Store(tmp_path / "random.db")
+    store.enqueue("https://github.com/a/one", "a/one", 100)
+    store.enqueue("https://github.com/a/two", "a/two", 1)
+
+    queries = []
+    original_execute = store.client.execute
+
+    def record_execute(statement, args=None):
+        queries.append(statement)
+        return original_execute(statement, args)
+
+    store.client.execute = record_execute
+    row = store.claim_next()
+
+    assert row is not None
+    assert any("ORDER BY RANDOM()" in query for query in queries)

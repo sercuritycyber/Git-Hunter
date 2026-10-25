@@ -150,7 +150,7 @@ class Store:
 
     def claim_next(self) -> dict[str, Any] | None:
         row = self._one(self.client.execute(
-            "SELECT * FROM queue WHERE status='pending' ORDER BY priority DESC LIMIT 1"
+            "SELECT * FROM queue WHERE status='pending' ORDER BY RANDOM() LIMIT 1"
         ))
         if row:
             self.client.execute("UPDATE queue SET status='scanning' WHERE id=?", (row["id"],))

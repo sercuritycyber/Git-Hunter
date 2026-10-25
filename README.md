@@ -19,6 +19,7 @@ Run `git-hunter` or `git-hunter dashboard` and open `http://127.0.0.1:8080`. The
 - GitHub Search API discovery with author repositories and forks added to the queue.
 - Turso/libSQL `queue` and `results` tables with queue deduplication and human review states.
 - Continuous Wanderer discovery using recent CVE, PoC, and Python pushes, plus repository-owner follower/following pivots.
+- Randomized discovery mode rotates CVE, PoC, and Python search seeds and GitHub result pages; pending queue claims are also random so consecutive scans do not always select the same repository path.
 - Admin Center control APIs for runtime configuration, credentials, lifecycle controls, live analysis, queue metrics, and activity history.
 - Five operational dashboards with three-second runtime telemetry polling and live repository/codebase progress.
 - Deterministic Python AST data-flow checks for high-entropy Base64 payloads reaching execution or network sinks.

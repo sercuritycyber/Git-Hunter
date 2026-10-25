@@ -25,7 +25,7 @@ class RuntimeState:
         self.config: dict[str, object] = {
             "scan_interval_seconds": 5760.0,
             "target_extensions": [".py", ".sh", ".bash", ".js", ".json"],
-            "seed_query": "pushed:>2026-01-01 language:python",
+            "seed_query": "random",
             "max_repositories_per_cycle": 10,
         }
         self.lock = threading.RLock()

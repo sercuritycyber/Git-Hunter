@@ -73,9 +73,16 @@ class GitHubClient:
         if elapsed < SEARCH_INTERVAL_SECONDS:
             time.sleep(SEARCH_INTERVAL_SECONDS - elapsed)
         self._last_search_at = time.monotonic()
-        params = urllib.parse.urlencode({"q": query, "per_page": min(limit, 100), "sort": "updated"})
+        params = urllib.parse.urlencode({
+            "q": query,
+            "per_page": min(limit, 100),
+            "page": random.randint(1, 10),
+            "sort": "updated",
+        })
         LOGGER.info("[*] Searching GitHub for %s", query)
-        return self.get(f"search/repositories?{params}").get("items", [])
+        results = self.get(f"search/repositories?{params}").get("items", [])
+        random.shuffle(results)
+        return results
 
     def related(self, repo: dict[str, Any]) -> list[dict[str, Any]]:
         owner = repo["owner"]["login"]
@@ -162,12 +169,13 @@ def wander_once(
     seed_query: str | None = None,
 ) -> int:
     cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).date().isoformat()
-    query = seed_query or random.choice((
+    query = seed_query if seed_query and seed_query.lower() != "random" else random.choice((
         f"CVE pushed:>{cutoff}",
         f"PoC pushed:>{cutoff}",
         f"language:python pushed:>{cutoff}",
     ))
     seeds = client.search(query, limit)
+    random.shuffle(seeds)
     users = deque(
         seed["owner"]["login"]
         for seed in seeds
@@ -179,9 +187,13 @@ def wander_once(
         if username in visited_users:
             continue
         visited_users.add(username)
-        for repository in client.user_repositories(username):
+        repositories = client.user_repositories(username)
+        random.shuffle(repositories)
+        for repository in repositories:
             added += _queue_repository(store, repository)
-        for related_user in client.user_relationships(username):
+        related_users = client.user_relationships(username)
+        random.shuffle(related_users)
+        for related_user in related_users:
             if related_user not in visited_users:
                 users.append(related_user)
     return added
