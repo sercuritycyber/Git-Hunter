@@ -148,6 +148,12 @@ class Store:
     def contains_url(self, url: str) -> bool:
         return self._one(self.client.execute("SELECT id FROM queue WHERE url=? LIMIT 1", (url,))) is not None
 
+    def pending_count(self) -> int:
+        row = self._one(self.client.execute(
+            "SELECT COUNT(*) AS count FROM queue WHERE status='pending'"
+        ))
+        return int(row["count"]) if row else 0
+
     def claim_next(self) -> dict[str, Any] | None:
         row = self._one(self.client.execute(
             "SELECT * FROM queue WHERE status='pending' ORDER BY RANDOM() LIMIT 1"

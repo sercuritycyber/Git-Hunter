@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import io
 import logging
 import os
 import random
@@ -8,6 +9,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import zipfile
 from collections import deque
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
@@ -17,6 +19,22 @@ from .storage import Store
 
 LOGGER = logging.getLogger(__name__)
 SEARCH_INTERVAL_SECONDS = 6.5
+BACKPRESSURE_SLEEP_SECONDS = 60.0
+
+
+def _wait_for_control(
+    run_event: Any,
+    shutdown_event: Any | None,
+    seconds: float,
+) -> None:
+    deadline = time.monotonic() + seconds
+    while run_event.is_set() and (
+        shutdown_event is None or not shutdown_event.is_set()
+    ):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return
+        time.sleep(min(0.25, remaining))
 
 
 class GitHubClient:
@@ -109,13 +127,21 @@ class GitHubClient:
         full_name: str,
         extensions: tuple[str, ...] = (".py", ".sh", ".bash", ".js", ".json"),
     ) -> dict[str, str]:
-        tree = self.get(f"repos/{full_name}/git/trees/HEAD?recursive=1")
         sources: dict[str, str] = {}
-        for item in tree.get("tree", []):
-            path = item.get("path", "")
-            if item.get("type") == "blob" and path.endswith(extensions):
-                raw_path = urllib.parse.quote(path, safe="/")
-                sources[path] = self.raw(f"https://raw.githubusercontent.com/{full_name}/HEAD/{raw_path}")
+        request = urllib.request.Request(
+            f"https://api.github.com/repos/{full_name}/zipball/HEAD"
+        )
+        request.add_header("Accept", "application/vnd.github+json")
+        if self.token:
+            request.add_header("Authorization", "Bearer " + self.token)
+        with urllib.request.urlopen(request, timeout=30) as response:
+            archive = io.BytesIO(response.read())
+        with zipfile.ZipFile(archive) as compressed:
+            for member in compressed.infolist():
+                if member.is_dir() or not member.filename.endswith(extensions):
+                    continue
+                relative_path = member.filename.split("/", 1)[-1]
+                sources[relative_path] = compressed.read(member).decode("utf-8", errors="replace")
         return sources
 
     def python_sources(self, full_name: str) -> dict[str, str]:
@@ -133,7 +159,7 @@ def discover(store: Store, query: str, limit: int = 10, client: GitHubClient | N
     for seed in client.search(query, limit):
         candidates = [seed]
         candidates.extend(client.related(seed))
-        for candidate in candidates:
+        for candidate in candidates[:limit]:
             if candidate.get("archived") or candidate.get("size", 0) > 100_000:
                 continue
             full_name = candidate.get("full_name")
@@ -189,8 +215,10 @@ def wander_once(
         visited_users.add(username)
         repositories = client.user_repositories(username)
         random.shuffle(repositories)
-        for repository in repositories:
+        for repository in repositories[:limit]:
             added += _queue_repository(store, repository)
+            if added >= limit:
+                return added
         related_users = client.user_relationships(username)
         random.shuffle(related_users)
         for related_user in related_users:
@@ -219,11 +247,22 @@ def run_wanderer(
                 time.sleep(0.25)
             continue
         try:
+            batch_limit = limit() if limit else 10
+            pending = store.pending_count()
+            capacity = batch_limit - pending
+            if capacity <= 0:
+                if status:
+                    status(
+                        f"Backpressure active: {pending} pending "
+                        f"(limit {batch_limit})"
+                    )
+                _wait_for_control(run_event, shutdown_event, BACKPRESSURE_SLEEP_SECONDS)
+                continue
             added = wander_once(
                 store,
                 client,
                 visited_users,
-                limit() if limit else 10,
+                capacity,
                 seed_query() if seed_query else None,
             )
             if status:
@@ -232,7 +271,4 @@ def run_wanderer(
             LOGGER.exception("[-] Wanderer cycle failed")
             if status:
                 status("Wanderer cycle failed; check the server log")
-        if shutdown_event is not None and hasattr(shutdown_event, "wait"):
-            shutdown_event.wait(interval_seconds)
-        else:
-            run_event.wait(interval_seconds)
+        _wait_for_control(run_event, shutdown_event, interval_seconds)

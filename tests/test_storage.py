@@ -47,3 +47,13 @@ def test_claim_next_selects_from_pending_queue_randomly(tmp_path):
 
     assert row is not None
     assert any("ORDER BY RANDOM()" in query for query in queries)
+
+
+def test_pending_count_only_counts_pending_items(tmp_path):
+    store = Store(tmp_path / "pending.db")
+    store.enqueue("https://github.com/a/pending", "a/pending", 1)
+    store.enqueue("https://github.com/a/other", "a/other", 1)
+    row = store.claim_next()
+
+    assert row is not None
+    assert store.pending_count() == 1

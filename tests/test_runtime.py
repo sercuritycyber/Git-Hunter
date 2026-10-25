@@ -55,10 +55,14 @@ def test_wanderer_waits_for_start_and_stops_cleanly(monkeypatch):
         run_event.clear()
         return 0
 
+    class Store:
+        def pending_count(self):
+            return 0
+
     monkeypatch.setattr(discovery, "wander_once", fake_wander_once)
     thread = threading.Thread(
         target=discovery.run_wanderer,
-        args=(object(), run_event),
+        args=(Store(), run_event),
         kwargs={
             "interval_seconds": 0,
             "shutdown_event": shutdown_event,
