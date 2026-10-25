@@ -15,11 +15,6 @@ from .worker import run_worker
 LOGGER = logging.getLogger(__name__)
 
 
-def _snapshot(full_name: str) -> str:
-    """Download a repository only for an explicit malicious review decision."""
-    return snapshot_repository(full_name)
-
-
 class Dashboard(BaseHTTPRequestHandler):
     store = Store()
 
@@ -55,7 +50,7 @@ async function load() {
     `<article><h2><a href='${r.url}'>${r.full_name}</a></h2><p>Score: ${r.anomaly_score}</p>
     <pre>${r.markdown_report}</pre>
     <button onclick="review(${r.id}, 'safe')">Mark as Safe</button>
-    <button onclick="review(${r.id}, 'malicious')">Confirm Malicious &amp; Quarantine</button></article>`).join('');
+    <button onclick="review(${r.id}, 'malicious_confirmed')">Confirm Malicious &amp; Quarantine</button></article>`).join('');
 }
 async function review(id, status) {
   await fetch(`/api/review/${id}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({status})});
@@ -81,23 +76,22 @@ load();
         except (ValueError, KeyError, json.JSONDecodeError):
             self.send_error(400, "invalid review request")
             return
-        if decision not in {"malicious", "safe"}:
-            self.send_error(400, "decision must be malicious or safe")
+        if decision not in {"malicious_confirmed", "safe"}:
+            self.send_error(400, "decision must be malicious_confirmed or safe")
             return
         row = self.store.queue_item(repo_id)
         if not row:
             self.send_error(404)
             return
         snapshot_path = None
-        status = "malicious_confirmed" if decision == "malicious" else "safe"
-        if decision == "malicious":
+        if decision == "malicious_confirmed":
             try:
-                snapshot_path = _snapshot(row["full_name"])
+                snapshot_path = snapshot_repository(row["full_name"])
             except Exception as error:
                 LOGGER.exception("[-] Could not quarantine %s", row["full_name"])
                 self.send_error(502, str(error))
                 return
-        self.store.review(repo_id, status)
+        self.store.review(repo_id, decision)
         self._send_json({"decision": decision, "snapshot_path": snapshot_path}, 200)
 
 

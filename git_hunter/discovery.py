@@ -77,15 +77,19 @@ class GitHubClient:
             related += self.get(f"repos/{repo['full_name']}/forks?per_page=100&sort=newest")
         return related
 
-    def python_sources(self, full_name: str) -> dict[str, str]:
+    def repository_sources(self, full_name: str) -> dict[str, str]:
         tree = self.get(f"repos/{full_name}/git/trees/HEAD?recursive=1")
         sources: dict[str, str] = {}
         for item in tree.get("tree", []):
             path = item.get("path", "")
-            if item.get("type") == "blob" and path.endswith(".py"):
+            if item.get("type") == "blob" and path.endswith((".py", ".sh", ".bash", ".js", ".json")):
                 raw_path = urllib.parse.quote(path, safe="/")
                 sources[path] = self.raw(f"https://raw.githubusercontent.com/{full_name}/HEAD/{raw_path}")
         return sources
+
+    def python_sources(self, full_name: str) -> dict[str, str]:
+        """Backward-compatible Python-only source fetch."""
+        return {path: source for path, source in self.repository_sources(full_name).items() if path.endswith(".py")}
 
 
 def _priority(size: int) -> int:

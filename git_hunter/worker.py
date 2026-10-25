@@ -5,13 +5,32 @@ import logging
 import time
 
 from .analyzer import analyze_python_sources, markdown_report
+from .bash_parser import analyze_bash_sources
 from .discovery import GitHubClient
 from .enrichment import enrich
+from .js_parser import analyze_js_sources
 from .storage import Store
 
 
 LOGGER = logging.getLogger(__name__)
 DAILY_SCAN_INTERVAL = 24 * 60 * 60 / 15
+
+
+def analyze_repository_sources(sources: dict[str, str]) -> dict[str, object]:
+    python_sources = {path: source for path, source in sources.items() if path.endswith(".py")}
+    bash_sources = {path: source for path, source in sources.items() if path.endswith((".sh", ".bash"))}
+    javascript_sources = {path: source for path, source in sources.items() if path.endswith((".js", ".json"))}
+    results = [
+        analyze_python_sources(python_sources),
+        analyze_bash_sources(bash_sources),
+        analyze_js_sources(javascript_sources),
+    ]
+    findings = [finding for result in results for finding in result["findings"]]
+    return {
+        "anomaly_score": min(100, sum(int(result["anomaly_score"]) for result in results)),
+        "findings": findings,
+        "files_scanned": sum(int(result["files_scanned"]) for result in results),
+    }
 
 
 def process_next(store: Store, client: GitHubClient | None = None) -> bool:
@@ -21,8 +40,8 @@ def process_next(store: Store, client: GitHubClient | None = None) -> bool:
         return False
     full_name = row["full_name"]
     try:
-        sources = client.python_sources(full_name)
-        result = analyze_python_sources(sources)
+        sources = client.repository_sources(full_name)
+        result = analyze_repository_sources(sources)
         ai_summary = enrich(json.dumps(result), timeout=5.0)
         result["ai_summary"] = ai_summary
         report = markdown_report(full_name, result, ai_summary)
