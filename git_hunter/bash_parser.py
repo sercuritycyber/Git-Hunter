@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from .signatures import scan_source
 
 LOGGER = logging.getLogger(__name__)
 BLOB_PATTERN = re.compile(r"^[A-Za-z0-9+/=]{80,}$|^[0-9a-fA-F]{80,}$")
@@ -83,8 +84,14 @@ class BashAnalyzer:
             self._track_assignment(line, line_number)
             self._inspect_sink(line, line_number)
         weights = {"traced_execution_sink": 75, "direct_execution_sink": 50, "execution_or_network": 15}
-        score = min(100, sum(weights.get(item["kind"], 0) for item in self.findings))
-        return {"anomaly_score": score, "findings": [{"file": self.filename, **item} for item in self.findings], "files_scanned": 1}
+        behavioral_findings = [{"file": self.filename, **item} for item in self.findings]
+        static_findings = [{"file": self.filename, **item} for item in scan_source(self.source)]
+        findings = behavioral_findings + static_findings
+        score = min(100, sum(
+            finding.get("weight", weights.get(finding["kind"], 0))
+            for finding in findings
+        ))
+        return {"anomaly_score": score, "findings": findings, "files_scanned": 1}
 
 
 def analyze_bash_sources(sources: dict[str, str]) -> dict[str, Any]:

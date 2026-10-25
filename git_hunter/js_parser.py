@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from .signatures import scan_source
 
 LOGGER = logging.getLogger(__name__)
 STRING_PATTERN = re.compile(r"(['\"])(?P<value>[A-Za-z0-9+/=]{80,}|[0-9a-fA-F]{80,})\1")
@@ -93,8 +94,14 @@ class JSAnalyzer:
             "direct_execution_sink": 50,
             "extension_or_network": 15,
         }
-        score = min(100, sum(weights.get(item["kind"], 0) for item in self.findings))
-        return {"anomaly_score": score, "findings": [{"file": self.filename, **item} for item in self.findings], "files_scanned": 1}
+        behavioral_findings = [{"file": self.filename, **item} for item in self.findings]
+        static_findings = [{"file": self.filename, **item} for item in scan_source(self.source)]
+        findings = behavioral_findings + static_findings
+        score = min(100, sum(
+            finding.get("weight", weights.get(finding["kind"], 0))
+            for finding in findings
+        ))
+        return {"anomaly_score": score, "findings": findings, "files_scanned": 1}
 
 
 def analyze_js_sources(sources: dict[str, str]) -> dict[str, Any]:

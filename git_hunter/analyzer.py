@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from .signatures import scan_source
 
 LOGGER = logging.getLogger(__name__)
 SINKS = {"eval", "exec", "compile", "__import__", "system", "popen", "check_output", "run", "urlopen", "request"}
@@ -87,17 +88,23 @@ class PythonAnalyzer(ast.NodeVisitor):
 def analyze_python_sources(sources: dict[str, str]) -> dict[str, Any]:
     findings: list[dict[str, Any]] = []
     for filename, source in sources.items():
+        static_findings = [{"file": filename, **finding} for finding in scan_source(source)]
         try:
             tree = ast.parse(source, filename=filename)
         except (SyntaxError, UnicodeDecodeError) as error:
             LOGGER.error("[-] Malformed Python in %s: %s", filename, error)
             findings.append({"file": filename, "line": getattr(error, "lineno", 0) or 0, "sink": None, "kind": "malformed_python"})
+            findings.extend(static_findings)
             continue
         analyzer = PythonAnalyzer(source, filename)
         analyzer.visit(tree)
         findings.extend({"file": filename, **finding} for finding in analyzer.findings)
+        findings.extend(static_findings)
     weights = {"traced_execution_sink": 75, "direct_execution_sink": 50, "execution_or_network": 15, "malformed_python": 50}
-    score = min(100, sum(weights.get(finding["kind"], 0) for finding in findings))
+    score = min(100, sum(
+        finding.get("weight", weights.get(finding["kind"], 0))
+        for finding in findings
+    ))
     return {"anomaly_score": score, "findings": findings, "files_scanned": len(sources)}
 
 
@@ -116,7 +123,9 @@ def markdown_report(repo: str, result: dict[str, Any], ai_analysis: str | None =
     for item in result["findings"]:
         if item["kind"] == "traced_execution_sink":
             detail = f"`{item['source_var']}` from line {item['source_line']} (entropy {item['entropy']:.2f}) -> `{item['sink']}`"
-        elif item["sink"]:
+        elif item.get("kind") == "static_signature_match":
+            detail = item["detail"]
+        elif item.get("sink"):
             detail = f"{item['kind']} -> `{item['sink']}`"
         else:
             detail = item["kind"]

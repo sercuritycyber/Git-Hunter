@@ -25,3 +25,28 @@ def test_malformed_python_is_visible_as_anomaly():
     result = analyze_python_sources({"broken.py": "def broken(:\n"})
     assert result["anomaly_score"] == 50
     assert result["findings"][0]["kind"] == "malformed_python"
+
+
+def test_static_signatures_are_merged_and_scored():
+    result = analyze_python_sources({
+        "callback.py": "url = 'https://discord.com/api/webhooks/example'\n",
+    })
+
+    assert result["anomaly_score"] == 60
+    assert result["findings"][0]["kind"] == "static_signature_match"
+    assert result["findings"][0]["file"] == "callback.py"
+
+
+def test_static_signature_score_caps_with_behavioral_findings():
+    blob = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/" * 2
+    result = analyze_python_sources({
+        "mixed.py": (
+            f"payload = base64.b64decode('{blob}')\n"
+            "exec(payload)\n"
+            "url = 'https://discord.com/api/webhooks/example'\n"
+        ),
+    })
+
+    assert result["anomaly_score"] == 100
+    assert any(item["kind"] == "traced_execution_sink" for item in result["findings"])
+    assert any(item["kind"] == "static_signature_match" for item in result["findings"])
