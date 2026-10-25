@@ -43,7 +43,17 @@ class Store:
         self.path = Path(path).expanduser()
         url = os.getenv("TURSO_DATABASE_URL") or f"file:{self.path.resolve()}"
         token = os.getenv("TURSO_AUTH_TOKEN")
-        self.client = libsql_client.create_client_sync(url, auth_token=token)
+        self.database_url = url
+        self._auth_token = token
+        self.auth_token_configured = bool(token)
+        self.client = self._create_client(url, token)
+        self._initialize_client()
+        self._initialized = True
+
+    def _create_client(self, url: str, token: str | None) -> Any:
+        return libsql_client.create_client_sync(url, auth_token=token)
+
+    def _initialize_client(self) -> None:
         execute_batch = getattr(self.client, "execute_batch", None)
         if execute_batch:
             execute_batch(SCHEMA)
@@ -57,7 +67,25 @@ class Store:
         register_shutdown = getattr(threading, "_register_atexit", None)
         if register_shutdown is not None:
             register_shutdown(self.client.close)
-        self._initialized = True
+
+    def reconfigure(self, url: str, token: str | None = None) -> None:
+        if not url.startswith(("libsql://", "https://", "file:")):
+            raise ValueError("database URL must be a libsql, https, or file URL")
+        if token is None:
+            token = self._auth_token
+        previous = self.client
+        client = self._create_client(url, token)
+        self.client = client
+        self.database_url = url
+        self._auth_token = token
+        self.auth_token_configured = bool(token)
+        try:
+            self._initialize_client()
+        except Exception:
+            self.client = previous
+            client.close()
+            raise
+        previous.close()
 
     @staticmethod
     def _rows(result: Any) -> list[dict[str, Any]]:

@@ -133,6 +133,8 @@ class Dashboard(BaseHTTPRequestHandler):
                     self.github_client.rate_limit_remaining if self.github_client else None
                 ),
                 "github_token_configured": bool(self.github_client and self.github_client.token),
+                "setup_required": not bool(self.github_client and self.github_client.token),
+                "database_url": self.store.database_url,
                 "queue": queue,
                 "last_event": snapshot["activity"][0]["message"] if snapshot["activity"] else None,
             })
@@ -146,7 +148,8 @@ class Dashboard(BaseHTTPRequestHandler):
         if path == "/api/setup":
             self._send_json({
                 "github_token_configured": bool(self.github_client and self.github_client.token),
-                "turso_database_url": os.getenv("TURSO_DATABASE_URL", ""),
+                "turso_database_url": self.store.database_url,
+                "turso_auth_token_configured": self.store.auth_token_configured,
             })
             return
         if path == "/":
@@ -218,27 +221,45 @@ class Dashboard(BaseHTTPRequestHandler):
                     if self.github_client:
                         self.github_client.token = token.strip()
                     self.state.add_activity("GitHub token updated")
-                if "turso_database_url" in payload:
-                    url = payload["turso_database_url"]
-                    if not isinstance(url, str) or not url.startswith(("libsql://", "https://", "file:")):
+                database_url = payload.get("turso_database_url")
+                database_token = payload.get("turso_auth_token")
+                if database_url is not None or database_token is not None:
+                    if database_url is None:
+                        database_url = self.store.database_url
+                    if not isinstance(database_url, str) or not database_url.startswith(("libsql://", "https://", "file:")):
                         self.send_error(400, "turso_database_url must be a libsql, https, or file URL")
                         return
-                    os.environ["TURSO_DATABASE_URL"] = url
-                if "turso_auth_token" in payload:
-                    token = payload["turso_auth_token"]
-                    if not isinstance(token, str) or not token.strip():
+                    if database_token is not None and (
+                        not isinstance(database_token, str) or not database_token.strip()
+                    ):
                         self.send_error(400, "turso_auth_token must be a non-empty string")
                         return
-                    os.environ["TURSO_AUTH_TOKEN"] = token.strip()
+                    self.state.stop()
+                    try:
+                        self.store.reconfigure(database_url, database_token.strip() if database_token else None)
+                    except Exception as error:
+                        LOGGER.exception("[-] Could not configure database")
+                        self.send_error(502, f"database connection failed: {error}")
+                        return
+                    self.state.add_activity("Database connection updated; system is stopped")
+                elif "turso_database_url" in payload:
+                    url = payload["turso_database_url"]
+                    if not isinstance(url, str):
+                        self.send_error(400, "turso_database_url must be a string")
+                        return
                 self._send_json({
                     "github_token_configured": bool(self.github_client and self.github_client.token),
-                    "restart_required": "turso_database_url" in payload or "turso_auth_token" in payload,
+                    "turso_auth_token_configured": self.store.auth_token_configured,
+                    "system_stopped": not self.state.snapshot()["spider_running"],
                 })
                 return
             if payload:
                 self.send_error(400, "system control endpoints do not accept a body")
                 return
             if path.endswith("/start"):
+                if not self.github_client or not self.github_client.token:
+                    self.send_error(409, "enter a GitHub token in Settings before starting the system")
+                    return
                 self.state.start()
             else:
                 self.state.stop()
@@ -302,7 +323,7 @@ def main() -> None:
         Dashboard.store = store
         client = GitHubClient()
         Dashboard.github_client = client
-        Dashboard.state.start()
+        Dashboard.state.stop()
         server = ThreadingHTTPServer(("127.0.0.1", args.port), Dashboard)
         spider_thread = threading.Thread(
             target=run_wanderer,
