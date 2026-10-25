@@ -87,3 +87,6 @@ class Store:
         return self.connection.execute(
             "SELECT q.id, q.full_name, q.url, q.status, r.anomaly_score, r.markdown, h.decision FROM repos_queue q LEFT JOIN scan_results r ON r.repo_id=q.id LEFT JOIN human_review h ON h.repo_id=q.id ORDER BY r.anomaly_score DESC"
         ).fetchall()
+
+    def queue_item(self, repo_id: int) -> sqlite3.Row | None:
+        return self.connection.execute("SELECT * FROM repos_queue WHERE id=?", (repo_id,)).fetchone()

@@ -1,12 +1,19 @@
 import tempfile
 from pathlib import Path
 
-from git_hunter.analyzer import analyze_python_files
+from git_hunter.analyzer import analyze_python_files, analyze_python_sources
 
 
-def test_detects_execution_sink_and_base64():
+def test_only_flags_payload_when_it_reaches_execution_sink():
     with tempfile.TemporaryDirectory() as directory:
-        Path(directory, "sample.py").write_text("import os\nvalue = '" + "A" * 100 + "'\nos.system(value)\n")
+        Path(directory, "sample.py").write_text("value = '" + "A" * 100 + "'\nprint(value)\n")
         result = analyze_python_files(directory)
-    assert result["anomaly_score"] > 0
-    assert {finding["kind"] for finding in result["findings"]} == {"execution_or_network", "high_entropy_base64"}
+    assert result["anomaly_score"] == 0
+    assert result["findings"] == []
+
+
+def test_traces_decoded_payload_to_sink():
+    result = analyze_python_sources({"sample.py": "import base64\npayload = base64.b64decode('" + "A" * 100 + "')\nexec(payload)\n"})
+    assert result["anomaly_score"] == 75
+    assert result["findings"][0]["kind"] == "traced_execution_sink"
+    assert result["findings"][0]["source_var"] == "payload"

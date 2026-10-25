@@ -23,7 +23,7 @@ Open `http://127.0.0.1:8080`. The local database is `data/git_hunter.db`; report
 - GitHub Search API discovery with author repositories and forks added to the queue.
 - SQLite queue with atomic claims, scan results, and human review overrides.
 - Deterministic Python AST checks for execution, network, decoding, and dynamic-import sinks.
-- Optional Claude CLI enrichment with a strict timeout and failure isolation.
-- JSON API and lightweight review dashboard. Malicious confirmation snapshots the repository as a zipball when `GITHUB_TOKEN` is configured.
+- Optional Claude CLI enrichment with a five-second timeout and failure isolation.
+- JSON API and lightweight review dashboard. A malicious confirmation, rather than the worker, snapshots the repository as a zipball into `COLD_STORAGE_PATH` (default `cold_storage`) when `GITHUB_TOKEN` is configured.
 
 The worker currently analyzes Python files fetched from a repository zipball. Bash and JavaScript analyzers are intentionally separate follow-up slices so each parser can be tested independently.
