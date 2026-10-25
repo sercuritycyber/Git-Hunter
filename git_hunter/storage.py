@@ -5,6 +5,7 @@ import os
 import threading
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlparse
 
 import libsql_client
 
@@ -41,14 +42,51 @@ class Store:
         if getattr(self, "_initialized", False):
             return
         self.path = Path(path).expanduser()
-        url = os.getenv("TURSO_DATABASE_URL") or f"file:{self.path.resolve()}"
+        url = os.getenv("TURSO_DATABASE_URL", "").strip() or f"file:{self.path.resolve()}"
         token = os.getenv("TURSO_AUTH_TOKEN")
+        self._prepare_local_database(url)
         self.database_url = url
         self._auth_token = token
         self.auth_token_configured = bool(token)
-        self.client = self._create_client(url, token)
+        try:
+            self.client = self._create_client(url, token)
+        except Exception as error:
+            raise RuntimeError(self._connection_error(url, error)) from error
         self._initialize_client()
         self._initialized = True
+
+    @staticmethod
+    def _local_path(url: str) -> Path | None:
+        parsed = urlparse(url)
+        if parsed.scheme != "file":
+            return None
+        return Path(unquote(parsed.path)).expanduser()
+
+    def _prepare_local_database(self, url: str) -> None:
+        local_path = self._local_path(url)
+        if local_path is None:
+            return
+        try:
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as error:
+            raise RuntimeError(
+                f"Cannot create local database directory '{local_path.parent}': {error}. "
+                "Choose a writable --db path or configure Turso in the dashboard."
+            ) from error
+
+    @staticmethod
+    def _connection_error(url: str, error: Exception) -> str:
+        parsed = urlparse(url)
+        if parsed.scheme == "file":
+            location = unquote(parsed.path)
+            return (
+                f"Cannot open local database '{location}': {error}. "
+                "Check that the path is writable and its parent directory exists."
+            )
+        return (
+            f"Cannot connect to database '{parsed.scheme}://{parsed.netloc}': {error}. "
+            "Check the Turso URL and enter a valid auth token in the dashboard."
+        )
 
     def _create_client(self, url: str, token: str | None) -> Any:
         return libsql_client.create_client_sync(url, auth_token=token)
@@ -73,8 +111,12 @@ class Store:
             raise ValueError("database URL must be a libsql, https, or file URL")
         if token is None:
             token = self._auth_token
+        self._prepare_local_database(url)
         previous = self.client
-        client = self._create_client(url, token)
+        try:
+            client = self._create_client(url, token)
+        except Exception as error:
+            raise RuntimeError(self._connection_error(url, error)) from error
         self.client = client
         self.database_url = url
         self._auth_token = token
