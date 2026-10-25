@@ -18,15 +18,15 @@ git-hunter worker --once
 git-hunter dashboard
 ```
 
-Open `http://127.0.0.1:8080`. The dashboard starts the Wanderer spider, worker, and web server concurrently. Use the System Status tab or `/api/system/start` and `/api/system/stop` to pause and resume crawling and scanning. Markdown reports are stored in the Turso `results` table. Set `COLD_STORAGE_PATH=/mnt/quarantine` for the Proxmox cold-storage mount.
+Run `git-hunter` or `git-hunter dashboard` and open `http://127.0.0.1:8080`. The localhost Admin Center starts the Wanderer spider, worker, and web server concurrently. It provides Overview, Live Analysis, Review Queue, Targets, and Settings dashboards. Use Settings to enter a GitHub token and Turso connection details; secrets are held in process memory and are not written to queue or report records. The Live Analysis view shows the repository being fetched, analysis stage, files discovered, source preview, and current codebase. Start/stop controls pause and resume crawling and scanning. Markdown reports are stored in the Turso `results` table. Set `COLD_STORAGE_PATH=/mnt/quarantine` for the Proxmox cold-storage mount.
 
 ## Current scope
 
 - GitHub Search API discovery with author repositories and forks added to the queue.
 - Turso/libSQL `queue` and `results` tables with queue deduplication and human review states.
 - Continuous Wanderer discovery using recent CVE, PoC, and Python pushes, plus repository-owner follower/following pivots.
-- C2 configuration and system-control endpoints at `/api/config`, `/api/system/start`, and `/api/system/stop`.
-- Tabbed review, status, and settings dashboard with three-second runtime telemetry polling.
+- Admin Center control APIs for runtime configuration, credentials, lifecycle controls, live analysis, queue metrics, and activity history.
+- Five operational dashboards with three-second runtime telemetry polling and live repository/codebase progress.
 - Deterministic Python AST data-flow checks for high-entropy Base64 payloads reaching execution or network sinks.
 - Malformed Python is retained as a +50 anomaly finding instead of being silently discarded.
 - GitHub Search calls are paced at 6.5 seconds, with `Retry-After` and `x-ratelimit-reset` backoff handling.

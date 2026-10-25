@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -49,6 +50,13 @@ class Store:
         else:
             statements = [statement.strip() for statement in SCHEMA.split(";") if statement.strip()]
             self.client.batch(statements)
+        executor = getattr(self.client, "_executor", None)
+        thread = getattr(executor, "_thread", None)
+        if thread is not None:
+            thread._daemonic = True
+        register_shutdown = getattr(threading, "_register_atexit", None)
+        if register_shutdown is not None:
+            register_shutdown(self.client.close)
         self._initialized = True
 
     @staticmethod
@@ -107,3 +115,15 @@ class Store:
 
     def queue_item(self, repo_id: int) -> dict[str, Any] | None:
         return self._one(self.client.execute("SELECT * FROM queue WHERE id=?", (repo_id,)))
+
+    def queue_stats(self) -> dict[str, int]:
+        rows = self._rows(self.client.execute("SELECT status, COUNT(*) AS count FROM queue GROUP BY status"))
+        stats = {str(row["status"]): int(row["count"]) for row in rows}
+        return {
+            "pending": stats.get("pending", 0),
+            "scanning": stats.get("scanning", 0),
+            "completed": stats.get("completed", 0),
+            "failed": stats.get("failed", 0),
+            "reviewed": stats.get("safe", 0) + stats.get("malicious_confirmed", 0),
+            "total": sum(stats.values()),
+        }

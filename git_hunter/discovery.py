@@ -10,7 +10,7 @@ import urllib.parse
 import urllib.request
 from collections import deque
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Callable
 
 from .storage import Store
 
@@ -97,12 +97,16 @@ class GitHubClient:
             )
         return users
 
-    def repository_sources(self, full_name: str) -> dict[str, str]:
+    def repository_sources(
+        self,
+        full_name: str,
+        extensions: tuple[str, ...] = (".py", ".sh", ".bash", ".js", ".json"),
+    ) -> dict[str, str]:
         tree = self.get(f"repos/{full_name}/git/trees/HEAD?recursive=1")
         sources: dict[str, str] = {}
         for item in tree.get("tree", []):
             path = item.get("path", "")
-            if item.get("type") == "blob" and path.endswith((".py", ".sh", ".bash", ".js", ".json")):
+            if item.get("type") == "blob" and path.endswith(extensions):
                 raw_path = urllib.parse.quote(path, safe="/")
                 sources[path] = self.raw(f"https://raw.githubusercontent.com/{full_name}/HEAD/{raw_path}")
         return sources
@@ -150,9 +154,15 @@ def _queue_repository(store: Store, repository: dict[str, Any]) -> bool:
     return queued
 
 
-def wander_once(store: Store, client: GitHubClient, visited_users: set[str], limit: int = 10) -> int:
+def wander_once(
+    store: Store,
+    client: GitHubClient,
+    visited_users: set[str],
+    limit: int = 10,
+    seed_query: str | None = None,
+) -> int:
     cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).date().isoformat()
-    query = random.choice((
+    query = seed_query or random.choice((
         f"CVE pushed:>{cutoff}",
         f"PoC pushed:>{cutoff}",
         f"language:python pushed:>{cutoff}",
@@ -182,12 +192,20 @@ def run_wanderer(
     run_event: Any,
     interval_seconds: float = SEARCH_INTERVAL_SECONDS,
     client: GitHubClient | None = None,
+    seed_query: Callable[[], str] | None = None,
+    limit: Callable[[], int] | None = None,
 ) -> None:
     client = client or GitHubClient()
     visited_users: set[str] = set()
     while run_event.is_set():
         try:
-            wander_once(store, client, visited_users)
+            wander_once(
+                store,
+                client,
+                visited_users,
+                limit() if limit else 10,
+                seed_query() if seed_query else None,
+            )
         except Exception:
             LOGGER.exception("[-] Wanderer cycle failed")
         run_event.wait(interval_seconds)

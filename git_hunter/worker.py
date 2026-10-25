@@ -4,6 +4,7 @@ import json
 import logging
 import time
 from collections.abc import Callable
+from typing import Any
 
 from .analyzer import analyze_python_sources, markdown_report
 from .bash_parser import analyze_bash_sources
@@ -34,21 +35,47 @@ def analyze_repository_sources(sources: dict[str, str]) -> dict[str, object]:
     }
 
 
-def process_next(store: Store, client: GitHubClient | None = None) -> bool:
+def process_next(
+    store: Store,
+    client: GitHubClient | None = None,
+    progress: Callable[[dict[str, Any]], None] | None = None,
+    extensions: Callable[[], tuple[str, ...]] | None = None,
+) -> bool:
     client = client or GitHubClient()
     row = store.claim_next()
     if not row:
         return False
     full_name = row["full_name"]
+    def update(**values: Any) -> None:
+        if progress:
+            progress({"repo_id": row["id"], "full_name": full_name, **values})
+
     try:
-        sources = client.repository_sources(full_name)
+        update(stage="fetching", message="Fetching repository tree", files_scanned=0)
+        source_extensions = extensions() if extensions else (".py", ".sh", ".bash", ".js", ".json")
+        sources = client.repository_sources(full_name, source_extensions)
+        update(
+            stage="analyzing",
+            message="Analyzing repository sources",
+            files_scanned=len(sources),
+            source_paths=sorted(sources),
+            source_preview=next(iter(sources.values()), "")[:4000],
+        )
         result = analyze_repository_sources(sources)
+        update(
+            stage="enriching",
+            message="Preparing findings and summary",
+            files_scanned=len(sources),
+            anomaly_score=result["anomaly_score"],
+        )
         ai_summary = enrich(json.dumps(result), timeout=5.0)
         result["ai_summary"] = ai_summary
         report = markdown_report(full_name, result, ai_summary)
         store.save_result(row["id"], result, report)
+        update(stage="completed", message="Analysis complete", anomaly_score=result["anomaly_score"])
         LOGGER.info("[+] Completed %s with score %s", full_name, result["anomaly_score"])
     except Exception:
+        update(stage="failed", message="Analysis failed")
         LOGGER.exception("[-] Scan failed for %s", full_name)
         store.fail(row["id"])
     return True
@@ -60,9 +87,11 @@ def run_worker(
     interval_seconds: float | Callable[[], float] = DAILY_SCAN_INTERVAL,
     client: GitHubClient | None = None,
     run_event: object | None = None,
+    progress: Callable[[dict[str, Any]], None] | None = None,
+    extensions: Callable[[], tuple[str, ...]] | None = None,
 ) -> None:
     while run_event is None or run_event.is_set():
-        processed = process_next(store, client)
+        processed = process_next(store, client, progress, extensions)
         if once:
             return
         wait_seconds = interval_seconds() if callable(interval_seconds) else interval_seconds
