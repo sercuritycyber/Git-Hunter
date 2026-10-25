@@ -170,3 +170,40 @@ def test_wanderer_uses_only_remaining_queue_capacity(tmp_path):
 
     assert store.pending_count() == 10
     assert messages == ["Wanderer cycle queued 8 repositories"]
+
+
+def test_wanderer_preserves_relationship_frontier_when_batch_fills(tmp_path):
+    class RelatedClient(FakeClient):
+        def user_repositories(self, username):
+            return [
+                {
+                    "full_name": f"{username}/repo",
+                    "html_url": f"https://github.com/{username}/repo",
+                    "size": 1,
+                }
+            ]
+
+        def user_relationships(self, username):
+            return ["bob"] if username == "alice" else []
+
+    store = Store(tmp_path / "frontier.db")
+    frontier = []
+    from collections import deque
+
+    users = deque(frontier)
+    visited = set()
+    client = RelatedClient()
+    assert wander_once(store, client, visited, limit=1, frontier=users) == 1
+    assert list(users) == ["bob"]
+
+
+def test_paginated_github_lists_fetch_all_pages():
+    class PaginatedClient(GitHubClient):
+        def get(self, path, attempt=0):
+            page = int(path.rsplit("page=", 1)[1])
+            if page == 1:
+                return [{"login": str(index)} for index in range(100)]
+            return [{"login": "last"}]
+
+    client = PaginatedClient("sentinel-token")
+    assert len(client.user_relationships("alice")) == 202

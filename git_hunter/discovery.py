@@ -104,23 +104,41 @@ class GitHubClient:
 
     def related(self, repo: dict[str, Any]) -> list[dict[str, Any]]:
         owner = repo["owner"]["login"]
-        related = self.get(f"users/{owner}/repos?per_page=100&sort=updated")
+        related = self._paginated(f"users/{owner}/repos?sort=updated")
         if repo.get("forks_count", 0):
-            related += self.get(f"repos/{repo['full_name']}/forks?per_page=100&sort=newest")
+            related += self._paginated(f"repos/{repo['full_name']}/forks?sort=newest")
         return related
 
     def user_repositories(self, username: str) -> list[dict[str, Any]]:
-        return self.get(f"users/{urllib.parse.quote(username)}/repos?per_page=100&sort=updated")
+        return self._paginated(
+            f"users/{urllib.parse.quote(username)}/repos?sort=updated"
+        )
 
     def user_relationships(self, username: str) -> list[str]:
         users: list[str] = []
         for relation in ("followers", "following"):
             users.extend(
                 user["login"]
-                for user in self.get(f"users/{urllib.parse.quote(username)}/{relation}?per_page=100")
+                for user in self._paginated(
+                    f"users/{urllib.parse.quote(username)}/{relation}"
+                )
                 if user.get("login")
             )
         return users
+
+    def _paginated(self, path: str) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
+        page = 1
+        while True:
+            separator = "&" if "?" in path else "?"
+            batch = self.get(f"{path}{separator}per_page=100&page={page}")
+            if not batch:
+                break
+            items.extend(batch)
+            if len(batch) < 100:
+                break
+            page += 1
+        return items
 
     def repository_sources(
         self,
@@ -193,6 +211,7 @@ def wander_once(
     visited_users: set[str],
     limit: int = 10,
     seed_query: str | None = None,
+    frontier: deque[str] | None = None,
 ) -> int:
     cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).date().isoformat()
     query = seed_query if seed_query and seed_query.lower() != "random" else random.choice((
@@ -200,13 +219,15 @@ def wander_once(
         f"PoC pushed:>{cutoff}",
         f"language:python pushed:>{cutoff}",
     ))
-    seeds = client.search(query, limit)
-    random.shuffle(seeds)
-    users = deque(
-        seed["owner"]["login"]
-        for seed in seeds
-        if seed.get("owner", {}).get("login")
-    )
+    users = frontier if frontier is not None else deque()
+    if not users:
+        seeds = client.search(query, limit)
+        random.shuffle(seeds)
+        users.extend(
+            seed["owner"]["login"]
+            for seed in seeds
+            if seed.get("owner", {}).get("login")
+        )
     added = 0
     while users:
         username = users.popleft()
@@ -215,15 +236,16 @@ def wander_once(
         visited_users.add(username)
         repositories = client.user_repositories(username)
         random.shuffle(repositories)
-        for repository in repositories[:limit]:
+        remaining = limit - added
+        for repository in repositories[:remaining]:
             added += _queue_repository(store, repository)
-            if added >= limit:
-                return added
         related_users = client.user_relationships(username)
         random.shuffle(related_users)
         for related_user in related_users:
             if related_user not in visited_users:
                 users.append(related_user)
+        if added >= limit:
+            return added
     return added
 
 
@@ -239,6 +261,7 @@ def run_wanderer(
 ) -> None:
     client = client or GitHubClient()
     visited_users: set[str] = set()
+    frontier: deque[str] = deque()
     while shutdown_event is None or not shutdown_event.is_set():
         if not run_event.is_set():
             if hasattr(run_event, "wait"):
@@ -264,6 +287,7 @@ def run_wanderer(
                 visited_users,
                 capacity,
                 seed_query() if seed_query else None,
+                frontier,
             )
             if status:
                 status(f"Wanderer cycle queued {added} repositories")

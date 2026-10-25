@@ -289,7 +289,10 @@ class Dashboard(BaseHTTPRequestHandler):
         snapshot_path = None
         if decision == "malicious_confirmed":
             try:
-                snapshot_path = snapshot_repository(row["full_name"])
+                snapshot_path = snapshot_repository(
+                    row["full_name"],
+                    token=self.github_client.token if self.github_client else None,
+                )
             except Exception as error:
                 LOGGER.exception("[-] Could not quarantine %s", row["full_name"])
                 self.send_error(502, str(error))

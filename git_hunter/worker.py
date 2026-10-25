@@ -77,7 +77,10 @@ def process_next(
     except Exception:
         update(stage="failed", message="Analysis failed")
         LOGGER.exception("[-] Scan failed for %s", full_name)
-        store.fail(row["id"])
+        try:
+            store.fail(row["id"])
+        except Exception:
+            LOGGER.exception("[-] Could not mark %s as failed", full_name)
     return True
 
 
