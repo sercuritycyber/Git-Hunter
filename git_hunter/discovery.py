@@ -207,10 +207,17 @@ def run_wanderer(
     seed_query: Callable[[], str] | None = None,
     limit: Callable[[], int] | None = None,
     status: Callable[[str], None] | None = None,
+    shutdown_event: Any | None = None,
 ) -> None:
     client = client or GitHubClient()
     visited_users: set[str] = set()
-    while run_event.is_set():
+    while shutdown_event is None or not shutdown_event.is_set():
+        if not run_event.is_set():
+            if hasattr(run_event, "wait"):
+                run_event.wait(0.25)
+            else:
+                time.sleep(0.25)
+            continue
         try:
             added = wander_once(
                 store,
@@ -225,4 +232,7 @@ def run_wanderer(
             LOGGER.exception("[-] Wanderer cycle failed")
             if status:
                 status("Wanderer cycle failed; check the server log")
-        run_event.wait(interval_seconds)
+        if shutdown_event is not None and hasattr(shutdown_event, "wait"):
+            shutdown_event.wait(interval_seconds)
+        else:
+            run_event.wait(interval_seconds)

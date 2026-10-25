@@ -87,18 +87,27 @@ def run_worker(
     interval_seconds: float | Callable[[], float] = DAILY_SCAN_INTERVAL,
     client: GitHubClient | None = None,
     run_event: object | None = None,
+    shutdown_event: object | None = None,
     progress: Callable[[dict[str, Any]], None] | None = None,
     extensions: Callable[[], tuple[str, ...]] | None = None,
 ) -> None:
-    while run_event is None or run_event.is_set():
+    while shutdown_event is None or not shutdown_event.is_set():
+        if run_event is not None and not run_event.is_set():
+            if hasattr(run_event, "wait"):
+                run_event.wait(0.25)
+            else:
+                time.sleep(0.25)
+            continue
         processed = process_next(store, client, progress, extensions)
         if once:
             return
         wait_seconds = interval_seconds() if callable(interval_seconds) else interval_seconds
         LOGGER.info("[*] Waiting %.0f seconds before the next scan", wait_seconds)
-        if run_event is not None and hasattr(run_event, "wait"):
+        if shutdown_event is not None and hasattr(shutdown_event, "wait"):
+            shutdown_event.wait(wait_seconds)
+        elif run_event is not None and hasattr(run_event, "wait"):
             run_event.wait(wait_seconds)
         else:
             time.sleep(wait_seconds)
-        if not processed and run_event is None:
+        if not processed and run_event is None and shutdown_event is None:
             return

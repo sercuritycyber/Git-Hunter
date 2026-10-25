@@ -324,6 +324,7 @@ def main() -> None:
         client = GitHubClient()
         Dashboard.github_client = client
         Dashboard.state.stop()
+        shutdown_event = threading.Event()
         server = ThreadingHTTPServer(("127.0.0.1", args.port), Dashboard)
         spider_thread = threading.Thread(
             target=run_wanderer,
@@ -333,6 +334,7 @@ def main() -> None:
                 "seed_query": lambda: str(Dashboard.state.snapshot()["config"]["seed_query"]),
                 "limit": lambda: int(Dashboard.state.snapshot()["config"]["max_repositories_per_cycle"]),
                 "status": Dashboard.state.add_activity,
+                "shutdown_event": shutdown_event,
             },
             name="git-hunter-spider",
             daemon=True,
@@ -344,6 +346,7 @@ def main() -> None:
                 "client": client,
                 "interval_seconds": lambda: float(Dashboard.state.config["scan_interval_seconds"]),
                 "run_event": Dashboard.state.worker_event,
+                "shutdown_event": shutdown_event,
                 "progress": Dashboard.state.update_progress,
                 "extensions": lambda: tuple(Dashboard.state.snapshot()["config"]["target_extensions"]),
             },
@@ -364,6 +367,7 @@ def main() -> None:
             pass
         finally:
             Dashboard.state.stop()
+            shutdown_event.set()
             server.shutdown()
             spider_thread.join(timeout=5)
             worker_thread.join(timeout=5)
