@@ -16,12 +16,12 @@ git-hunter worker --once
 git-hunter dashboard
 ```
 
-Open `http://127.0.0.1:8080`. The local database is `data/git_hunter.db`; Markdown reports are written to `reports/`. Set `COLD_STORAGE_PATH=/mnt/quarantine` for the Proxmox cold-storage mount.
+Open `http://127.0.0.1:8080`. The local database is `data/git_hunter.db`; Markdown reports are stored in the `results` table. Set `COLD_STORAGE_PATH=/mnt/quarantine` for the Proxmox cold-storage mount.
 
 ## Current scope
 
 - GitHub Search API discovery with author repositories and forks added to the queue.
-- SQLite/libSQL-compatible queue with atomic claims, scan results, provenance, and human review states.
+- SQLite/libSQL-compatible `queue` and `results` tables with atomic claims and human review states.
 - Deterministic Python AST data-flow checks for high-entropy Base64 payloads reaching execution or network sinks.
 - Malformed Python is retained as a +50 anomaly finding instead of being silently discarded.
 - GitHub Search calls are paced at 6.5 seconds, with `Retry-After` and `x-ratelimit-reset` backoff handling.

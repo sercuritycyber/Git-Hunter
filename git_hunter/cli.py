@@ -15,6 +15,11 @@ from .worker import run_worker
 LOGGER = logging.getLogger(__name__)
 
 
+def _snapshot(full_name: str) -> str:
+    """Download a repository only for an explicit malicious review decision."""
+    return snapshot_repository(full_name)
+
+
 class Dashboard(BaseHTTPRequestHandler):
     store = Store()
 
@@ -47,10 +52,10 @@ class Dashboard(BaseHTTPRequestHandler):
 async function load() {
   const reports = await (await fetch('/api/reports')).json();
   document.getElementById('reports').innerHTML = reports.map(r =>
-    `<article><h2><a href='${r.html_url}'>${r.full_name}</a></h2><p>Score: ${r.anomaly_score}</p>
-    <pre>${r.markdown}</pre><p>${r.ai_summary || 'AI summary unavailable'}</p>
-    <button onclick="review(${r.id}, 'marked_safe')">Mark as Safe</button>
-    <button onclick="review(${r.id}, 'confirmed_malicious')">Confirm Malicious &amp; Quarantine</button></article>`).join('');
+    `<article><h2><a href='${r.url}'>${r.full_name}</a></h2><p>Score: ${r.anomaly_score}</p>
+    <pre>${r.markdown_report}</pre>
+    <button onclick="review(${r.id}, 'safe')">Mark as Safe</button>
+    <button onclick="review(${r.id}, 'malicious')">Confirm Malicious &amp; Quarantine</button></article>`).join('');
 }
 async function review(id, status) {
   await fetch(`/api/review/${id}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({status})});
@@ -72,27 +77,28 @@ load();
         try:
             repo_id = int(path.rsplit("/", 1)[1])
             length = int(self.headers.get("Content-Length", "0"))
-            status = json.loads(self.rfile.read(length))["status"]
+            decision = json.loads(self.rfile.read(length))["decision"]
         except (ValueError, KeyError, json.JSONDecodeError):
             self.send_error(400, "invalid review request")
             return
-        if status not in {"marked_safe", "confirmed_malicious"}:
-            self.send_error(400, "status must be marked_safe or confirmed_malicious")
+        if decision not in {"malicious", "safe"}:
+            self.send_error(400, "decision must be malicious or safe")
             return
         row = self.store.queue_item(repo_id)
         if not row:
             self.send_error(404)
             return
         snapshot_path = None
-        if status == "confirmed_malicious":
+        status = "malicious_confirmed" if decision == "malicious" else "safe"
+        if decision == "malicious":
             try:
-                snapshot_path = snapshot_repository(row["full_name"])
+                snapshot_path = _snapshot(row["full_name"])
             except Exception as error:
                 LOGGER.exception("[-] Could not quarantine %s", row["full_name"])
                 self.send_error(502, str(error))
                 return
-        self.store.review(row["full_name"], status, snapshot_path)
-        self._send_json({"status": status, "snapshot_path": snapshot_path}, 200)
+        self.store.review(repo_id, status)
+        self._send_json({"decision": decision, "snapshot_path": snapshot_path}, 200)
 
 
 def main() -> None:

@@ -3,8 +3,6 @@ from __future__ import annotations
 import json
 import logging
 import time
-from pathlib import Path
-from typing import Any
 
 from .analyzer import analyze_python_sources, markdown_report
 from .discovery import GitHubClient
@@ -26,14 +24,13 @@ def process_next(store: Store, client: GitHubClient | None = None) -> bool:
         sources = client.python_sources(full_name)
         result = analyze_python_sources(sources)
         ai_summary = enrich(json.dumps(result), timeout=5.0)
+        result["ai_summary"] = ai_summary
         report = markdown_report(full_name, result, ai_summary)
-        Path("reports").mkdir(exist_ok=True)
-        Path("reports", f"{row['id']}.md").write_text(report, encoding="utf-8")
-        store.save_result(full_name, result, report, ai_summary)
+        store.save_result(row["id"], result, report)
         LOGGER.info("[+] Completed %s with score %s", full_name, result["anomaly_score"])
     except Exception:
         LOGGER.exception("[-] Scan failed for %s", full_name)
-        store.fail(full_name)
+        store.fail(row["id"])
     return True
 
 

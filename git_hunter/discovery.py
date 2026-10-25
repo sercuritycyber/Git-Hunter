@@ -96,16 +96,16 @@ def discover(store: Store, query: str, limit: int = 10, client: GitHubClient | N
     client = client or GitHubClient()
     added = 0
     for seed in client.search(query, limit):
-        candidates = [(seed, "search_seed")]
-        candidates.extend((repo, f"recursive_author_{seed['owner']['login']}") for repo in client.related(seed))
-        for candidate, source in candidates:
+        candidates = [seed]
+        candidates.extend(client.related(seed))
+        for candidate in candidates:
             if candidate.get("archived") or candidate.get("size", 0) > 100_000:
                 continue
             full_name = candidate.get("full_name")
             html_url = candidate.get("html_url")
             if not full_name or not html_url:
                 continue
-            if store.enqueue(full_name, html_url, _priority(candidate.get("size", 0)), source):
+            if store.enqueue(html_url, full_name, _priority(candidate.get("size", 0))):
                 added += 1
                 LOGGER.info("[+] Queued %s", full_name)
     return added
