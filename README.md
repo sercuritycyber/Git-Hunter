@@ -1,6 +1,6 @@
 # Git-Hunter
 
-Git-Hunter is a local-first GitHub repository triage pipeline for an isolated worker VM. It discovers small, recently active repositories, queues them in SQLite/libSQL-compatible storage, analyzes raw Python sources in memory, and exposes reports for human review.
+Git-Hunter is a headless GitHub repository triage pipeline for an isolated worker VM. It discovers small, recently active repositories, queues them in Turso/libSQL storage, analyzes raw sources in memory, and exposes reports for human review.
 
 ## Quick start
 
@@ -9,6 +9,8 @@ python3 -m venv .venv
 . .venv/bin/activate
 pip install -e .
 
+export TURSO_DATABASE_URL=libsql://your-database.turso.io
+export TURSO_AUTH_TOKEN=your_turso_token
 # GitHub_TOKEN is optional, but increases API rate limits.
 export GITHUB_TOKEN=your_token
 git-hunter discover --query 'pushed:>2026-01-01 language:Python' --limit 10
@@ -16,12 +18,15 @@ git-hunter worker --once
 git-hunter dashboard
 ```
 
-Open `http://127.0.0.1:8080`. The local database is `data/git_hunter.db`; Markdown reports are stored in the `results` table. Set `COLD_STORAGE_PATH=/mnt/quarantine` for the Proxmox cold-storage mount.
+Open `http://127.0.0.1:8080`. The dashboard starts the Wanderer spider, worker, and web server concurrently. Use the System Status tab or `/api/system/start` and `/api/system/stop` to pause and resume crawling and scanning. Markdown reports are stored in the Turso `results` table. Set `COLD_STORAGE_PATH=/mnt/quarantine` for the Proxmox cold-storage mount.
 
 ## Current scope
 
 - GitHub Search API discovery with author repositories and forks added to the queue.
-- SQLite/libSQL-compatible `queue` and `results` tables with atomic claims and human review states.
+- Turso/libSQL `queue` and `results` tables with queue deduplication and human review states.
+- Continuous Wanderer discovery using recent CVE, PoC, and Python pushes, plus repository-owner follower/following pivots.
+- C2 configuration and system-control endpoints at `/api/config`, `/api/system/start`, and `/api/system/stop`.
+- Tabbed review, status, and settings dashboard with three-second runtime telemetry polling.
 - Deterministic Python AST data-flow checks for high-entropy Base64 payloads reaching execution or network sinks.
 - Malformed Python is retained as a +50 anomaly finding instead of being silently discarded.
 - GitHub Search calls are paced at 6.5 seconds, with `Retry-After` and `x-ratelimit-reset` backoff handling.

@@ -3,10 +3,13 @@ from __future__ import annotations
 import json
 import logging
 import os
+import random
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections import deque
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .storage import Store
@@ -21,6 +24,7 @@ class GitHubClient:
         self.token = token or os.getenv("GITHUB_TOKEN")
         self.max_retries = max_retries
         self._last_search_at = 0.0
+        self.rate_limit_remaining: int | None = None
 
     def _request(self, url: str) -> Any:
         request = urllib.request.Request(url)
@@ -28,6 +32,9 @@ class GitHubClient:
         if self.token:
             request.add_header("Authorization", f"Bearer {self.token}")
         with urllib.request.urlopen(request, timeout=20) as response:
+            remaining = response.headers.get("x-ratelimit-remaining")
+            if remaining is not None:
+                self.rate_limit_remaining = int(remaining)
             return json.load(response)
 
     @staticmethod
@@ -77,6 +84,19 @@ class GitHubClient:
             related += self.get(f"repos/{repo['full_name']}/forks?per_page=100&sort=newest")
         return related
 
+    def user_repositories(self, username: str) -> list[dict[str, Any]]:
+        return self.get(f"users/{urllib.parse.quote(username)}/repos?per_page=100&sort=updated")
+
+    def user_relationships(self, username: str) -> list[str]:
+        users: list[str] = []
+        for relation in ("followers", "following"):
+            users.extend(
+                user["login"]
+                for user in self.get(f"users/{urllib.parse.quote(username)}/{relation}?per_page=100")
+                if user.get("login")
+            )
+        return users
+
     def repository_sources(self, full_name: str) -> dict[str, str]:
         tree = self.get(f"repos/{full_name}/git/trees/HEAD?recursive=1")
         sources: dict[str, str] = {}
@@ -109,7 +129,65 @@ def discover(store: Store, query: str, limit: int = 10, client: GitHubClient | N
             html_url = candidate.get("html_url")
             if not full_name or not html_url:
                 continue
+            if store.contains_url(html_url):
+                continue
             if store.enqueue(html_url, full_name, _priority(candidate.get("size", 0))):
                 added += 1
                 LOGGER.info("[+] Queued %s", full_name)
     return added
+
+
+def _queue_repository(store: Store, repository: dict[str, Any]) -> bool:
+    if repository.get("archived") or repository.get("size", 0) > 100_000:
+        return False
+    full_name = repository.get("full_name")
+    html_url = repository.get("html_url")
+    if not full_name or not html_url or store.contains_url(html_url):
+        return False
+    queued = store.enqueue(html_url, full_name, _priority(repository.get("size", 0)))
+    if queued:
+        LOGGER.info("[+] Wanderer queued %s", full_name)
+    return queued
+
+
+def wander_once(store: Store, client: GitHubClient, visited_users: set[str], limit: int = 10) -> int:
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).date().isoformat()
+    query = random.choice((
+        f"CVE pushed:>{cutoff}",
+        f"PoC pushed:>{cutoff}",
+        f"language:python pushed:>{cutoff}",
+    ))
+    seeds = client.search(query, limit)
+    users = deque(
+        seed["owner"]["login"]
+        for seed in seeds
+        if seed.get("owner", {}).get("login")
+    )
+    added = 0
+    while users:
+        username = users.popleft()
+        if username in visited_users:
+            continue
+        visited_users.add(username)
+        for repository in client.user_repositories(username):
+            added += _queue_repository(store, repository)
+        for related_user in client.user_relationships(username):
+            if related_user not in visited_users:
+                users.append(related_user)
+    return added
+
+
+def run_wanderer(
+    store: Store,
+    run_event: Any,
+    interval_seconds: float = SEARCH_INTERVAL_SECONDS,
+    client: GitHubClient | None = None,
+) -> None:
+    client = client or GitHubClient()
+    visited_users: set[str] = set()
+    while run_event.is_set():
+        try:
+            wander_once(store, client, visited_users)
+        except Exception:
+            LOGGER.exception("[-] Wanderer cycle failed")
+        run_event.wait(interval_seconds)

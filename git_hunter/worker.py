@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from collections.abc import Callable
 
 from .analyzer import analyze_python_sources, markdown_report
 from .bash_parser import analyze_bash_sources
@@ -53,9 +54,22 @@ def process_next(store: Store, client: GitHubClient | None = None) -> bool:
     return True
 
 
-def run_worker(store: Store, once: bool = False, interval_seconds: float = DAILY_SCAN_INTERVAL, client: GitHubClient | None = None) -> None:
-    while process_next(store, client):
+def run_worker(
+    store: Store,
+    once: bool = False,
+    interval_seconds: float | Callable[[], float] = DAILY_SCAN_INTERVAL,
+    client: GitHubClient | None = None,
+    run_event: object | None = None,
+) -> None:
+    while run_event is None or run_event.is_set():
+        processed = process_next(store, client)
         if once:
             return
-        LOGGER.info("[*] Waiting %.0f seconds before the next scan", interval_seconds)
-        time.sleep(interval_seconds)
+        wait_seconds = interval_seconds() if callable(interval_seconds) else interval_seconds
+        LOGGER.info("[*] Waiting %.0f seconds before the next scan", wait_seconds)
+        if run_event is not None and hasattr(run_event, "wait"):
+            run_event.wait(wait_seconds)
+        else:
+            time.sleep(wait_seconds)
+        if not processed and run_event is None:
+            return

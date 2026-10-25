@@ -7,6 +7,9 @@ name = "git-hunter"
 version = "1.0.0"
 description = "Local-first GitHub repository triage pipeline"
 requires-python = ">=3.11"
+dependencies = [
+    "libsql-client>=0.3.1",
+]
 
 [project.scripts]
 git-hunter = "git_hunter.cli:main"
