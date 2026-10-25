@@ -332,6 +332,7 @@ def main() -> None:
                 "client": client,
                 "seed_query": lambda: str(Dashboard.state.snapshot()["config"]["seed_query"]),
                 "limit": lambda: int(Dashboard.state.snapshot()["config"]["max_repositories_per_cycle"]),
+                "status": Dashboard.state.add_activity,
             },
             name="git-hunter-spider",
             daemon=True,

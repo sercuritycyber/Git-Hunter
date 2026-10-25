@@ -30,7 +30,7 @@ class GitHubClient:
         request = urllib.request.Request(url)
         request.add_header("Accept", "application/vnd.github+json")
         if self.token:
-            request.add_header("Authorization", f"Bearer {self.token}")
+            request.add_header("Authorization", "Bearer " + self.token)
         with urllib.request.urlopen(request, timeout=20) as response:
             remaining = response.headers.get("x-ratelimit-remaining")
             if remaining is not None:
@@ -64,7 +64,7 @@ class GitHubClient:
         request = urllib.request.Request(url)
         request.add_header("Accept", "text/plain")
         if self.token:
-            request.add_header("Authorization", f"Bearer {self.token}")
+            request.add_header("Authorization", "Bearer " + self.token)
         with urllib.request.urlopen(request, timeout=20) as response:
             return response.read().decode("utf-8")
 
@@ -206,18 +206,23 @@ def run_wanderer(
     client: GitHubClient | None = None,
     seed_query: Callable[[], str] | None = None,
     limit: Callable[[], int] | None = None,
+    status: Callable[[str], None] | None = None,
 ) -> None:
     client = client or GitHubClient()
     visited_users: set[str] = set()
     while run_event.is_set():
         try:
-            wander_once(
+            added = wander_once(
                 store,
                 client,
                 visited_users,
                 limit() if limit else 10,
                 seed_query() if seed_query else None,
             )
+            if status:
+                status(f"Wanderer cycle queued {added} repositories")
         except Exception:
             LOGGER.exception("[-] Wanderer cycle failed")
+            if status:
+                status("Wanderer cycle failed; check the server log")
         run_event.wait(interval_seconds)

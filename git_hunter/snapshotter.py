@@ -21,7 +21,7 @@ def snapshot_repository(full_name: str, cold_storage: str | Path | None = None, 
     request.add_header("Accept", "application/vnd.github+json")
     token = os.getenv("GITHUB_TOKEN")
     if token:
-        request.add_header("Authorization", f"Bearer {token}")
+        request.add_header("Authorization", "Bearer " + token)
     with urllib.request.urlopen(request, timeout=30) as response, destination.open("wb") as output:
         shutil.copyfileobj(response, output)
     LOGGER.info("[+] Snapshot written to %s", destination)
