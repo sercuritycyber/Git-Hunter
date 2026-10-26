@@ -120,16 +120,28 @@ class Dashboard(BaseHTTPRequestHandler):
             self.send_error(400, "invalid JSON")
             return None
 
+    def _database_unavailable(self, error: Exception) -> None:
+        LOGGER.error("[-] Database request failed: %s", type(error).__name__)
+        self.send_error(503, "database unavailable; check database settings")
+
     def do_GET(self) -> None:
         path = urlparse(self.path).path
         if path == "/api/reports":
-            self._send_json([dict(row) for row in self.store.reports()])
+            try:
+                reports = self.store.reports()
+            except Exception as error:
+                self._database_unavailable(error)
+                return
+            self._send_json([dict(row) for row in reports])
             return
         if path.startswith("/api/reports/"):
             try:
                 report = self.store.report(int(path.rsplit("/", 1)[1]))
             except ValueError:
                 report = None
+            except Exception as error:
+                self._database_unavailable(error)
+                return
             if not report:
                 self.send_error(404)
                 return
@@ -146,13 +158,20 @@ class Dashboard(BaseHTTPRequestHandler):
             except ValueError:
                 self.send_error(400, "unsupported queue status")
                 return
+            except Exception as error:
+                self._database_unavailable(error)
+                return
             self._send_json(rows)
             return
         if path == "/api/system/status":
-            started = time.monotonic()
-            self.store.client.execute("SELECT 1")
-            snapshot = self.state.snapshot()
-            queue = self.store.queue_stats()
+            try:
+                started = time.monotonic()
+                self.store.client.execute("SELECT 1")
+                snapshot = self.state.snapshot()
+                queue = self.store.queue_stats()
+            except Exception as error:
+                self._database_unavailable(error)
+                return
             self._send_json({
                 "worker_state": "running" if snapshot["worker_running"] else "stopped",
                 "spider_state": "running" if snapshot["spider_running"] else "stopped",
@@ -314,7 +333,11 @@ class Dashboard(BaseHTTPRequestHandler):
         if decision not in {"malicious_confirmed", "safe"}:
             self.send_error(400, "decision must be malicious_confirmed or safe")
             return
-        row = self.store.queue_item(repo_id)
+        try:
+            row = self.store.queue_item(repo_id)
+        except Exception as error:
+            self._database_unavailable(error)
+            return
         if not row:
             self.send_error(404)
             return
@@ -329,7 +352,11 @@ class Dashboard(BaseHTTPRequestHandler):
                 LOGGER.exception("[-] Could not quarantine %s", row["full_name"])
                 self.send_error(502, str(error))
                 return
-        self.store.review(repo_id, decision)
+        try:
+            self.store.review(repo_id, decision)
+        except Exception as error:
+            self._database_unavailable(error)
+            return
         self._send_json({"decision": decision, "snapshot_path": snapshot_path}, 200)
 
 

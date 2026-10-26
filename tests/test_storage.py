@@ -136,3 +136,14 @@ def test_concurrent_claims_do_not_claim_the_same_item(tmp_path):
         thread.join()
 
     assert claimed == [1]
+
+
+def test_connection_errors_do_not_expose_database_error_details():
+    message = Store._connection_error(
+        "libsql://example.turso.io",
+        RuntimeError("auth token super-secret"),
+    )
+
+    assert "super-secret" not in message
+    assert "RuntimeError" in message
+    assert "example.turso.io" in message

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
 from pathlib import Path
@@ -8,6 +9,8 @@ from typing import Any
 from urllib.parse import unquote, urlparse
 
 import libsql_client
+
+LOGGER = logging.getLogger(__name__)
 
 SCHEMA = """
 PRAGMA foreign_keys = ON;
@@ -85,14 +88,15 @@ class Store:
     @staticmethod
     def _connection_error(url: str, error: Exception) -> str:
         parsed = urlparse(url)
+        error_type = type(error).__name__
         if parsed.scheme == "file":
             location = unquote(parsed.path)
             return (
-                f"Cannot open local database '{location}': {error}. "
+                f"Cannot open local database '{location}' ({error_type}). "
                 "Check that the path is writable and its parent directory exists."
             )
         return (
-            f"Cannot connect to database '{parsed.scheme}://{parsed.netloc}': {error}. "
+            f"Cannot connect to database '{parsed.scheme}://{parsed.netloc}' ({error_type}). "
             "Check the Turso URL and enter a valid auth token in the dashboard."
         )
 
@@ -172,13 +176,21 @@ class Store:
         self.client = client
         try:
             self._initialize_client()
-        except Exception:
+        except Exception as error:
             self.client = previous
             self.database_url = previous_url
             self._auth_token = previous_token
             self.auth_token_configured = previous_token_configured
-            client.close()
-            raise
+            try:
+                client.close()
+            except Exception as close_error:
+                # The replacement client is unusable; preserve the original
+                # connection error while recording cleanup failure.
+                LOGGER.warning(
+                    "Could not close failed database client: %s",
+                    type(close_error).__name__,
+                )
+            raise RuntimeError(self._connection_error(url, error)) from error
         self.database_url = url
         self._auth_token = token
         self.auth_token_configured = bool(token)
