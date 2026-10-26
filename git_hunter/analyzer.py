@@ -88,8 +88,6 @@ class PythonAnalyzer(ast.NodeVisitor):
                     "source_line": traced["line"],
                     "entropy": traced["entropy"],
                 })
-            else:
-                self.findings.append({"line": node.lineno, "sink": name, "kind": "execution_or_network"})
         self.generic_visit(node)
 
 

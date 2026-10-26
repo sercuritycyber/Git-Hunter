@@ -17,6 +17,13 @@ NETWORK_CALLBACKS = {
     "transfer_sh": "transfer.sh",
 }
 
+NETWORK_ACTION = re.compile(
+    r"\b(?:curl|wget|fetch|axios|requests?\.(?:get|post|put|request)|"
+    r"urlopen\s*\(|urllib\.[A-Za-z_]+\s*\(|WebClient|XMLHttpRequest|"
+    r"sendBeacon|sendMessage)\b",
+    re.IGNORECASE,
+)
+
 SIGNATURES = (
     Signature(
         "Netcat reverse shell",
@@ -83,8 +90,13 @@ for callback_name, domain in NETWORK_CALLBACKS.items():
 def scan_source(source_code: str) -> list[dict[str, object]]:
     findings: list[dict[str, object]] = []
     for line_number, line in enumerate(source_code.splitlines(), start=1):
+        if not line.strip() or line.lstrip().startswith(("#", "//", "/*", "*")):
+            continue
         for signature in SIGNATURES:
             if signature.pattern.search(line):
+                is_callback = signature.name.endswith(" callback")
+                if is_callback and not NETWORK_ACTION.search(line):
+                    continue
                 findings.append({
                     "line": line_number,
                     "kind": "static_signature_match",

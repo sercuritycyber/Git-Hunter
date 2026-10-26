@@ -28,7 +28,10 @@ def _blob_metadata(value: str, line: int) -> dict[str, Any] | None:
     candidate = value.strip().strip("'\"")
     if not BLOB_PATTERN.fullmatch(candidate):
         return None
-    return {"line": line, "entropy": _entropy(candidate)}
+    entropy = _entropy(candidate)
+    if entropy <= 5.5:
+        return None
+    return {"line": line, "entropy": entropy}
 
 
 class BashAnalyzer:
@@ -77,7 +80,8 @@ class BashAnalyzer:
                 "entropy": _entropy(direct_blob),
             })
             return
-        self.findings.append({"line": line_number, "sink": sink, "kind": "execution_or_network"})
+        # A shell execution primitive is not malicious by itself. Without a
+        # high-entropy payload reaching it, there is no behavioral finding.
 
     def analyze(self) -> dict[str, Any]:
         for line_number, line in enumerate(self.source.splitlines(), start=1):

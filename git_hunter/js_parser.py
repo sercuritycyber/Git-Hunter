@@ -30,7 +30,10 @@ def _entropy(value: str) -> float:
 def _blob_metadata(value: str, line: int) -> dict[str, Any] | None:
     if not re.fullmatch(r"[A-Za-z0-9+/=]{80,}|[0-9a-fA-F]{80,}", value):
         return None
-    return {"line": line, "entropy": _entropy(value)}
+    entropy = _entropy(value)
+    if entropy <= 5.5:
+        return None
+    return {"line": line, "entropy": entropy}
 
 
 class JSAnalyzer:
@@ -81,7 +84,8 @@ class JSAnalyzer:
                 "entropy": metadata["entropy"] if metadata else 0.0,
             })
             return
-        self.findings.append({"line": line_number, "sink": sink, "kind": "extension_or_network"})
+        # Browser APIs and eval are frequently used legitimately. Only report
+        # a sink when an encoded/high-entropy payload reaches it.
 
     def analyze(self) -> dict[str, Any]:
         for line_number, line in enumerate(self.source.splitlines(), start=1):
