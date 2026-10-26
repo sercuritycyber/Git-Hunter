@@ -13,6 +13,7 @@ LOGGER = logging.getLogger(__name__)
 SINKS = {"eval", "exec", "compile", "__import__", "system", "popen", "check_output", "run", "urlopen", "request"}
 BASE64 = re.compile(r"^[A-Za-z0-9+/=]{80,}$")
 ENTROPY_THRESHOLD = 5.5
+MAX_CONSTANT_LENGTH = 1_000_000
 
 
 def _entropy(value: str) -> float:
@@ -50,10 +51,32 @@ class PythonAnalyzer(ast.NodeVisitor):
     def _payload_metadata(self, node: ast.AST) -> dict[str, Any] | None:
         if isinstance(node, ast.Name):
             return self.tracked_vars.get(node.id)
-        if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            return _base64_metadata(node.value, node.lineno)
+        constant = self._constant_text(node)
+        if constant is not None:
+            return _base64_metadata(constant, getattr(node, "lineno", 0))
         if isinstance(node, ast.Call) and self._call_name(node) in {"b64decode", "urlsafe_b64decode"} and node.args:
             return self._payload_metadata(node.args[0])
+        return None
+
+    @classmethod
+    def _constant_text(cls, node: ast.AST) -> str | None:
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Mult)):
+            left = cls._constant_text(node.left)
+            right = cls._constant_text(node.right)
+            if isinstance(node.op, ast.Add) and left is not None and right is not None:
+                value = left + right
+            elif isinstance(node.op, ast.Mult):
+                if left is not None and isinstance(node.right, ast.Constant) and isinstance(node.right.value, int):
+                    value = left * node.right.value
+                elif right is not None and isinstance(node.left, ast.Constant) and isinstance(node.left.value, int):
+                    value = right * node.left.value
+                else:
+                    return None
+            else:
+                return None
+            return value if len(value) <= MAX_CONSTANT_LENGTH else None
         return None
 
     def visit_Assign(self, node: ast.Assign) -> Any:

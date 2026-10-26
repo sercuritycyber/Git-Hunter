@@ -79,3 +79,13 @@ def test_keyword_payloads_reach_python_sinks():
 
     assert result["anomaly_score"] == 75
     assert result["findings"][0]["kind"] == "traced_execution_sink"
+
+
+def test_constant_payload_construction_reaches_python_sink():
+    blob = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    result = analyze_python_sources({
+        "constructed.py": f"payload = base64.b64decode('{blob}' * 2)\nexec(payload)\n",
+    })
+
+    assert result["anomaly_score"] == 75
+    assert result["findings"][0]["kind"] == "traced_execution_sink"
