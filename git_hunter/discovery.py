@@ -239,8 +239,9 @@ def wander_once(
         visited_users.add(username)
         repositories = client.user_repositories(username)
         random.shuffle(repositories)
-        remaining = limit - added
-        for repository in repositories[:remaining]:
+        for repository in repositories:
+            if added >= limit:
+                break
             added += _queue_repository(store, repository)
         related_users = client.user_relationships(username)
         random.shuffle(related_users)

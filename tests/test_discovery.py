@@ -248,6 +248,37 @@ def test_wanderer_refreshes_search_frontier_each_cycle():
     assert len(store.urls) == 2
 
 
+def test_wanderer_scans_past_already_queued_repositories(tmp_path, monkeypatch):
+    class ExistingFirstClient(FakeClient):
+        def user_repositories(self, username):
+            return [
+                {
+                    "full_name": f"{username}/existing-{index}",
+                    "html_url": f"https://github.com/{username}/existing-{index}",
+                    "size": 1,
+                }
+                for index in range(3)
+            ] + [
+                {
+                    "full_name": f"{username}/new",
+                    "html_url": f"https://github.com/{username}/new",
+                    "size": 1,
+                }
+            ]
+
+    store = Store(tmp_path / "existing-first.db")
+    monkeypatch.setattr("git_hunter.discovery.random.shuffle", lambda values: None)
+    for index in range(3):
+        store.enqueue(
+            f"https://github.com/alice/existing-{index}",
+            f"alice/existing-{index}",
+            1,
+        )
+
+    assert wander_once(store, ExistingFirstClient(), set(), limit=1) == 1
+    assert store.contains_url("https://github.com/alice/new")
+
+
 def test_wanderer_preserves_relationship_frontier_when_batch_fills(tmp_path):
     class RelatedClient(FakeClient):
         def user_repositories(self, username):
