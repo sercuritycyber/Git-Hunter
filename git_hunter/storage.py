@@ -264,7 +264,7 @@ class Store:
 
     def reports(self) -> list[dict[str, Any]]:
         reports = self._rows(self.client.execute(
-            "SELECT q.id, q.url, q.full_name, q.status, r.anomaly_score, r.raw_json, r.markdown_report FROM queue q JOIN results r ON r.repo_id=q.id WHERE r.anomaly_score > 50 AND q.status NOT IN ('safe', 'malicious_confirmed') ORDER BY r.anomaly_score DESC"
+            "SELECT q.id, q.url, q.full_name, q.status, r.anomaly_score, r.raw_json, r.markdown_report FROM queue q JOIN results r ON r.repo_id=q.id WHERE q.status NOT IN ('safe', 'malicious_confirmed') ORDER BY r.anomaly_score DESC, q.id DESC"
         ))
         for report in reports:
             try:

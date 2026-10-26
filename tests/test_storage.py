@@ -45,6 +45,23 @@ def test_queue_stats_reports_alert_and_finding_counts(tmp_path):
     assert stats["findings"] == 2
 
 
+def test_reports_include_findings_below_previous_score_threshold(tmp_path):
+    store = Store(tmp_path / "low-score.db")
+    store.enqueue("https://github.com/a/b", "a/b", 5)
+    row = store.claim_next()
+    assert row is not None
+    store.save_result(
+        row["id"],
+        {"anomaly_score": 15, "findings": [{"file": "scan.py", "line": 2, "kind": "execution_or_network"}]},
+        "# report",
+    )
+
+    reports = store.reports()
+
+    assert len(reports) == 1
+    assert reports[0]["finding_count"] == 1
+
+
 def test_local_database_creates_missing_parent_directory(tmp_path):
     database_path = tmp_path / "nested" / "data" / "git_hunter.db"
     store = Store(database_path)
