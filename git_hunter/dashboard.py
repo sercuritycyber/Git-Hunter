@@ -7,17 +7,17 @@ DASHBOARD_HTML = r"""<!doctype html>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Git-Hunter Admin Center</title>
 <style>
-:root{--bg:#08111f;--panel:#101d31;--panel2:#14253d;--line:#263c5c;--text:#edf4ff;--muted:#91a5c2;--blue:#57a1ff;--green:#32d583;--orange:#fdb022;--red:#f97066}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px Inter,ui-sans-serif,system-ui,sans-serif}
-button,input,textarea,select{font:inherit}button{border:0;border-radius:7px;padding:9px 14px;color:#fff;background:#29466e;cursor:pointer;font-weight:650}
+:root{--bg:#f4f7fb;--panel:#fff;--panel2:#edf3fa;--line:#d7e1ee;--text:#172b4d;--muted:#63758d;--blue:#1769d2;--green:#107c41;--orange:#a15c00;--red:#c4314b}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px "Segoe UI",Inter,ui-sans-serif,system-ui,sans-serif}
+button,input,textarea,select{font:inherit}button{border:0;border-radius:4px;padding:9px 14px;color:#fff;background:#365b86;cursor:pointer;font-weight:650}
 button:hover{filter:brightness(1.15)}button.primary{background:#1769d2}button.danger{background:#9e2f3e}button.ghost{background:transparent;border:1px solid var(--line)}
-.shell{display:grid;grid-template-columns:245px 1fr;min-height:100vh}.side{background:#0b1729;border-right:1px solid var(--line);padding:24px 16px}
+.shell{display:grid;grid-template-columns:252px 1fr;min-height:100vh}.side{background:#10243f;border-right:1px solid #203b5e;padding:24px 16px}
 .brand{font-size:20px;font-weight:800;letter-spacing:-.03em;padding:0 10px 24px}.brand span{color:var(--blue)}
-.nav{display:grid;gap:6px}.nav button{text-align:left;background:transparent;color:var(--muted);font-weight:600}.nav button.active,.nav button:hover{background:#162b49;color:var(--text)}
-.side-footer{position:fixed;bottom:18px;color:var(--muted);font-size:12px;padding:0 10px}.main{min-width:0}.topbar{height:76px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;padding:0 30px}
+.nav{display:grid;gap:6px}.nav button{text-align:left;background:transparent;color:#b8c9de;font-weight:600}.nav button.active,.nav button:hover{background:#1d416b;color:#fff}
+.side-footer{position:fixed;bottom:18px;color:var(--muted);font-size:12px;padding:0 10px}.main{min-width:0}.topbar{height:82px;background:var(--panel);border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;padding:0 30px}
 .title h1{font-size:20px;margin:0 0 4px}.title p{margin:0;color:var(--muted)}.actions{display:flex;gap:8px;align-items:center}.pill{border-radius:999px;padding:5px 10px;background:#193454;color:var(--muted);font-size:12px}.pill.on{color:#7df2b1;background:#113c32}
 .content{padding:28px 30px;max-width:1500px}.view{display:none}.view.active{display:block}.grid{display:grid;gap:14px}.metrics{grid-template-columns:repeat(5,minmax(130px,1fr));margin-bottom:18px}.two{grid-template-columns:1.35fr 1fr}.three{grid-template-columns:repeat(3,1fr)}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px}.metric .label,.label{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.07em}.metric .value{font-size:26px;font-weight:800;margin-top:8px}.muted{color:var(--muted)}.good{color:var(--green)}.warn{color:var(--orange)}.bad{color:var(--red)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:18px;box-shadow:0 2px 6px rgba(24,52,84,.06)}.metric .label,.label{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.07em}.metric .value{font-size:26px;font-weight:800;margin-top:8px}.muted{color:var(--muted)}.good{color:var(--green)}.warn{color:var(--orange)}.bad{color:var(--red)}
 .card-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}.card h2{font-size:15px;margin:0}.bar{height:8px;background:#1c2c45;border-radius:99px;overflow:hidden}.bar i{display:block;height:100%;background:var(--blue);border-radius:inherit;width:0;transition:width .3s}
 .repo-name{font-size:22px;font-weight:800;margin:4px 0}.stage{color:var(--blue);font-weight:700}.kv{display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid #1d304b}.kv:last-child{border:0}
 .code{background:#07101d;border:1px solid #1e3453;border-radius:7px;overflow:auto;max-height:300px;padding:14px;white-space:pre;font:12px ui-monospace,SFMono-Regular,monospace;color:#c7daf7}.files{max-height:170px;overflow:auto}.file{padding:5px 0;color:#a8c0df;border-bottom:1px solid #1b2c45}

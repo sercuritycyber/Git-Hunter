@@ -149,8 +149,13 @@ class Store:
 
     def reconfigure(self, url: str, token: str | None = None) -> None:
         parsed = urlparse(url)
-        if parsed.scheme not in {"libsql", "file"} or (parsed.scheme == "libsql" and not parsed.netloc):
-            raise ValueError("database URL must be a libsql URL or a local file URL")
+        valid_turso_host = parsed.hostname and (
+            parsed.hostname == "turso.io" or parsed.hostname.endswith(".turso.io")
+        )
+        if parsed.scheme not in {"libsql", "https", "file"} or (
+            parsed.scheme in {"libsql", "https"} and not valid_turso_host
+        ):
+            raise ValueError("database URL must be a Turso libsql/https URL or a local file URL")
         if token is None and url != self.database_url:
             raise ValueError("enter the auth token again when changing the database URL")
         if token is None:

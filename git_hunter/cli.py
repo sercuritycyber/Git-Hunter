@@ -253,8 +253,8 @@ class Dashboard(BaseHTTPRequestHandler):
                         database_url = self.store.database_url
                     if isinstance(database_url, str):
                         database_url = database_url.strip()
-                    if not isinstance(database_url, str) or not database_url.startswith(("libsql://", "file:")):
-                        self.send_error(400, "turso_database_url must be a libsql or file URL")
+                    if not isinstance(database_url, str) or not database_url.startswith(("libsql://", "https://", "file:")):
+                        self.send_error(400, "turso_database_url must be a Turso libsql/https or file URL")
                         return
                     if database_token is not None and (
                         not isinstance(database_token, str) or not database_token.strip()
