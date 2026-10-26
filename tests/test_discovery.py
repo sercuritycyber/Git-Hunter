@@ -1,5 +1,6 @@
 import io
 import threading
+import urllib.error
 import zipfile
 
 from git_hunter.discovery import GitHubClient, run_wanderer, wander_once
@@ -77,6 +78,20 @@ def test_repository_sources_fetches_one_in_memory_zipball(monkeypatch):
     assert requests[0].full_url.endswith("/repos/owner/repo/zipball/HEAD")
     assert requests[0].get_header("Authorization") == "Bearer sentinel-token"
     assert sources == {"scan.py": "print('ok')"}
+
+
+def test_rate_limit_delay_uses_safe_fallback_for_malformed_reset_header():
+    error = urllib.error.HTTPError(
+        "https://api.github.com",
+        429,
+        "rate limited",
+        {"x-ratelimit-reset": "not-a-timestamp"},
+        None,
+    )
+
+    delay = GitHubClient._retry_delay(error)
+
+    assert 61 <= delay <= 63
 
 
 class _BackpressureStore:

@@ -63,7 +63,10 @@ class GitHubClient:
                 return max(float(retry_after), 0.0)
             except ValueError:
                 pass
-        reset = int(error.headers.get("x-ratelimit-reset", time.time() + 60))
+        try:
+            reset = float(error.headers.get("x-ratelimit-reset", time.time() + 60))
+        except (TypeError, ValueError):
+            reset = time.time() + 60
         return max(reset - time.time(), 0.0) + 2.0
 
     def get(self, path: str, attempt: int = 0) -> Any:

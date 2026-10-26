@@ -162,20 +162,26 @@ class Store:
             token = self._auth_token
         self._prepare_local_database(url)
         previous = self.client
+        previous_url = self.database_url
+        previous_token = self._auth_token
+        previous_token_configured = self.auth_token_configured
         try:
             client = self._create_client(url, token)
         except Exception as error:
             raise RuntimeError(self._connection_error(url, error)) from error
         self.client = client
-        self.database_url = url
-        self._auth_token = token
-        self.auth_token_configured = bool(token)
         try:
             self._initialize_client()
         except Exception:
             self.client = previous
+            self.database_url = previous_url
+            self._auth_token = previous_token
+            self.auth_token_configured = previous_token_configured
             client.close()
             raise
+        self.database_url = url
+        self._auth_token = token
+        self.auth_token_configured = bool(token)
         previous.close()
 
     @staticmethod
@@ -231,11 +237,19 @@ class Store:
                     transaction.close()
 
     def save_result(self, repo_id: int, result: dict[str, Any], markdown_report: str) -> None:
-        self.client.execute(
-            "INSERT OR REPLACE INTO results(repo_id, anomaly_score, raw_json, markdown_report) VALUES (?, ?, ?, ?)",
-            (repo_id, result["anomaly_score"], json.dumps(result), markdown_report),
-        )
-        self.client.execute("UPDATE queue SET status='completed' WHERE id=?", (repo_id,))
+        transaction = self.client.transaction()
+        try:
+            transaction.execute(
+                "INSERT OR REPLACE INTO results(repo_id, anomaly_score, raw_json, markdown_report) VALUES (?, ?, ?, ?)",
+                (repo_id, result["anomaly_score"], json.dumps(result), markdown_report),
+            )
+            transaction.execute("UPDATE queue SET status='completed' WHERE id=?", (repo_id,))
+            transaction.commit()
+        except Exception:
+            transaction.rollback()
+            raise
+        finally:
+            transaction.close()
 
     def fail(self, repo_id: int, stage: str = "unknown", reason: str = "analysis_failed") -> None:
         self.client.execute(
