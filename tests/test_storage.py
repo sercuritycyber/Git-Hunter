@@ -10,7 +10,8 @@ def test_queue_lifecycle(tmp_path):
     row = store.claim_next()
     assert row["status"] == "scanning"
     store.save_result(row["id"], {"anomaly_score": 75, "findings": []}, "# report")
-    assert store.reports()[0]["status"] == "completed"
+    assert store.report(row["id"])["status"] == "completed"
+    assert store.reports() == []
 
 
 def test_safe_review_is_hidden(tmp_path):

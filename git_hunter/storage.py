@@ -266,13 +266,16 @@ class Store:
         reports = self._rows(self.client.execute(
             "SELECT q.id, q.url, q.full_name, q.status, r.anomaly_score, r.raw_json, r.markdown_report FROM queue q JOIN results r ON r.repo_id=q.id WHERE q.status NOT IN ('safe', 'malicious_confirmed') ORDER BY r.anomaly_score DESC, q.id DESC"
         ))
+        visible: list[dict[str, Any]] = []
         for report in reports:
             try:
                 findings = json.loads(report["raw_json"]).get("findings", [])
             except (TypeError, json.JSONDecodeError):
                 findings = []
             report["finding_count"] = len(findings) if isinstance(findings, list) else 0
-        return reports
+            if report["finding_count"]:
+                visible.append(report)
+        return visible
 
     def report(self, repo_id: int) -> dict[str, Any] | None:
         return self._one(self.client.execute(
