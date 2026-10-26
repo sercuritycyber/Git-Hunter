@@ -22,6 +22,10 @@ SEARCH_INTERVAL_SECONDS = 6.5
 BACKPRESSURE_SLEEP_SECONDS = 60.0
 
 
+class GitHubAuthenticationError(RuntimeError):
+    """Raised when GitHub rejects the configured credential."""
+
+
 def _wait_for_control(
     run_event: Any,
     shutdown_event: Any | None,
@@ -43,13 +47,26 @@ class GitHubClient:
         self.max_retries = max_retries
         self._last_search_at = 0.0
         self.rate_limit_remaining: int | None = None
+        self.auth_failed = False
+
+    def _authentication_error(self) -> GitHubAuthenticationError:
+        self.auth_failed = True
+        return GitHubAuthenticationError(
+            "GitHub rejected the configured token; update the GitHub token in Settings"
+        )
 
     def _request(self, url: str) -> Any:
         request = urllib.request.Request(url)
         request.add_header("Accept", "application/vnd.github+json")
         if self.token:
             request.add_header("Authorization", "Bearer " + self.token)
-        with urllib.request.urlopen(request, timeout=20) as response:
+        try:
+            response_context = urllib.request.urlopen(request, timeout=20)
+        except urllib.error.HTTPError as error:
+            if error.code == 401:
+                raise self._authentication_error() from error
+            raise
+        with response_context as response:
             remaining = response.headers.get("x-ratelimit-remaining")
             if remaining is not None:
                 try:
@@ -89,7 +106,13 @@ class GitHubClient:
         request.add_header("Accept", "text/plain")
         if self.token:
             request.add_header("Authorization", "Bearer " + self.token)
-        with urllib.request.urlopen(request, timeout=20) as response:
+        try:
+            response_context = urllib.request.urlopen(request, timeout=20)
+        except urllib.error.HTTPError as error:
+            if error.code == 401:
+                raise self._authentication_error() from error
+            raise
+        with response_context as response:
             return response.read().decode("utf-8")
 
     def search(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
@@ -158,7 +181,13 @@ class GitHubClient:
         request.add_header("Accept", "application/vnd.github+json")
         if self.token:
             request.add_header("Authorization", "Bearer " + self.token)
-        with urllib.request.urlopen(request, timeout=30) as response:
+        try:
+            response_context = urllib.request.urlopen(request, timeout=30)
+        except urllib.error.HTTPError as error:
+            if error.code == 401:
+                raise self._authentication_error() from error
+            raise
+        with response_context as response:
             archive = io.BytesIO(response.read())
         with zipfile.ZipFile(archive) as compressed:
             for member in compressed.infolist():
@@ -275,6 +304,11 @@ def run_wanderer(
                 time.sleep(0.25)
             continue
         try:
+            if getattr(client, "auth_failed", False):
+                run_event.clear()
+                if status:
+                    status("Wanderer stopped: GitHub token rejected; update Settings")
+                continue
             batch_limit = limit() if limit else 10
             pending = store.pending_count()
             capacity = batch_limit - pending
@@ -298,6 +332,10 @@ def run_wanderer(
             )
             if status:
                 status(f"Wanderer cycle queued {added} repositories")
+        except GitHubAuthenticationError:
+            run_event.clear()
+            if status:
+                status("Wanderer stopped: GitHub token rejected; update Settings")
         except Exception:
             LOGGER.exception("[-] Wanderer cycle failed")
             if status:

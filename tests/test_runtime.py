@@ -3,6 +3,7 @@ import time
 
 import git_hunter.discovery as discovery
 import git_hunter.worker as worker
+from git_hunter.discovery import GitHubAuthenticationError
 
 
 def _run_until(predicate, timeout=1.0):
@@ -75,5 +76,36 @@ def test_wanderer_waits_for_start_and_stops_cleanly(monkeypatch):
     assert _run_until(lambda: calls)
     shutdown_event.set()
     run_event.set()
+    thread.join(timeout=1)
+    assert not thread.is_alive()
+
+
+def test_worker_stops_processing_after_github_authentication_failure(monkeypatch):
+    calls = []
+    run_event = threading.Event()
+    run_event.set()
+    client = type("Client", (), {"auth_failed": False})()
+
+    def fake_process_next(*args, **kwargs):
+        calls.append(True)
+        client.auth_failed = True
+        return True
+
+    monkeypatch.setattr(worker, "process_next", fake_process_next)
+    shutdown_event = threading.Event()
+    thread = threading.Thread(
+        target=worker.run_worker,
+        args=(object(),),
+        kwargs={
+            "once": False,
+            "client": client,
+            "run_event": run_event,
+            "shutdown_event": shutdown_event,
+        },
+    )
+    thread.start()
+    assert _run_until(lambda: calls)
+    assert _run_until(lambda: not run_event.is_set())
+    shutdown_event.set()
     thread.join(timeout=1)
     assert not thread.is_alive()

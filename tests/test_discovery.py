@@ -3,7 +3,7 @@ import threading
 import urllib.error
 import zipfile
 
-from git_hunter.discovery import GitHubClient, run_wanderer, wander_once
+from git_hunter.discovery import GitHubAuthenticationError, GitHubClient, run_wanderer, wander_once
 from git_hunter.storage import Store
 
 
@@ -62,6 +62,23 @@ def test_malformed_rate_limit_remaining_header_does_not_crash(monkeypatch):
 
     assert client.search("language:python", 1) == []
     assert client.rate_limit_remaining is None
+
+
+def test_unauthorized_requests_are_reported_without_exposing_token(monkeypatch):
+    def fake_urlopen(request, timeout):
+        raise urllib.error.HTTPError(request.full_url, 401, "Unauthorized", {}, None)
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    client = GitHubClient("secret-token")
+
+    try:
+        client.search("language:python", 1)
+    except GitHubAuthenticationError as error:
+        assert "secret-token" not in str(error)
+        assert "Settings" in str(error)
+    else:
+        raise AssertionError("unauthorized GitHub responses must stop scanning")
+    assert client.auth_failed
 
 
 def test_repository_sources_fetches_one_in_memory_zipball(monkeypatch):

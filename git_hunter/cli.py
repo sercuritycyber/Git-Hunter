@@ -161,6 +161,7 @@ class Dashboard(BaseHTTPRequestHandler):
                     self.github_client.rate_limit_remaining if self.github_client else None
                 ),
                 "github_token_configured": bool(self.github_client and self.github_client.token),
+                "github_auth_failed": bool(self.github_client and getattr(self.github_client, "auth_failed", False)),
                 "setup_required": not bool(self.github_client and self.github_client.token),
                 "database_url": self.store.database_url,
                 "queue": queue,
@@ -176,6 +177,7 @@ class Dashboard(BaseHTTPRequestHandler):
         if path == "/api/setup":
             self._send_json({
                 "github_token_configured": bool(self.github_client and self.github_client.token),
+                "github_auth_failed": bool(self.github_client and getattr(self.github_client, "auth_failed", False)),
                 "turso_database_url": self.store.database_url,
                 "turso_auth_token_configured": self.store.auth_token_configured,
             })
@@ -245,6 +247,7 @@ class Dashboard(BaseHTTPRequestHandler):
                         return
                     if self.github_client:
                         self.github_client.token = token.strip()
+                        self.github_client.auth_failed = False
                     self.state.add_activity("GitHub token updated")
                 database_url = payload.get("turso_database_url")
                 database_token = payload.get("turso_auth_token")

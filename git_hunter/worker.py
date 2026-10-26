@@ -8,7 +8,7 @@ from typing import Any
 
 from .analyzer import analyze_python_sources, markdown_report
 from .bash_parser import analyze_bash_sources
-from .discovery import GitHubClient
+from .discovery import GitHubAuthenticationError, GitHubClient
 from .enrichment import enrich
 from .js_parser import analyze_js_sources
 from .storage import Store
@@ -56,6 +56,8 @@ def process_next(
     extensions: Callable[[], tuple[str, ...]] | None = None,
 ) -> bool:
     client = client or GitHubClient()
+    if getattr(client, "auth_failed", False):
+        return False
     row = store.claim_next()
     if not row:
         return False
@@ -92,6 +94,13 @@ def process_next(
         store.save_result(row["id"], result, report)
         update(stage="completed", message="Analysis complete", anomaly_score=result["anomaly_score"])
         LOGGER.info("[+] Completed %s with score %s", full_name, result["anomaly_score"])
+    except GitHubAuthenticationError as error:
+        update(stage="failed", message=str(error))
+        LOGGER.error("[-] Scan paused: %s", error)
+        try:
+            store.fail(row["id"], stage=stage, reason="github_authentication")
+        except Exception:
+            LOGGER.exception("[-] Could not mark %s as failed", full_name)
     except Exception as error:
         update(stage="failed", message="Analysis failed")
         LOGGER.exception("[-] Scan failed for %s", full_name)
@@ -120,6 +129,13 @@ def run_worker(
                 time.sleep(0.25)
             continue
         processed = process_next(store, client, progress, extensions)
+        if client is not None and getattr(client, "auth_failed", False):
+            if run_event is not None and hasattr(run_event, "clear"):
+                run_event.clear()
+            if once:
+                return
+            _wait_for_control(run_event, shutdown_event, 1.0)
+            continue
         if once:
             return
         wait_seconds = 1.0 if processed else 5.0
