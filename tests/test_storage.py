@@ -22,6 +22,29 @@ def test_safe_review_is_hidden(tmp_path):
     assert store.reports() == []
 
 
+def test_queue_stats_reports_alert_and_finding_counts(tmp_path):
+    store = Store(tmp_path / "counts.db")
+    store.enqueue("https://github.com/a/b", "a/b", 5)
+    row = store.claim_next()
+    assert row is not None
+    store.save_result(
+        row["id"],
+        {
+            "anomaly_score": 75,
+            "findings": [
+                {"file": "scan.py", "line": 4, "kind": "execution_or_network"},
+                {"file": "scan.py", "line": 8, "kind": "static_signature_match"},
+            ],
+        },
+        "# report",
+    )
+
+    stats = store.queue_stats()
+
+    assert stats["alerts"] == 1
+    assert stats["findings"] == 2
+
+
 def test_local_database_creates_missing_parent_directory(tmp_path):
     database_path = tmp_path / "nested" / "data" / "git_hunter.db"
     store = Store(database_path)

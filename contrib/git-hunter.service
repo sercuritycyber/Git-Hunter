@@ -1,0 +1,22 @@
+[Unit]
+Description=Git-Hunter repository triage dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=git-hunter
+Group=git-hunter
+WorkingDirectory=/opt/git-hunter
+EnvironmentFile=-/etc/git-hunter/git-hunter.env
+ExecStart=/usr/local/bin/git-hunter --db /var/lib/git-hunter/git_hunter.db dashboard --host 127.0.0.1 --port 8080
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/git-hunter /mnt/quarantine
+
+[Install]
+WantedBy=multi-user.target

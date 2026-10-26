@@ -263,9 +263,16 @@ class Store:
         self.client.execute("UPDATE queue SET status=? WHERE id=?", (status, repo_id))
 
     def reports(self) -> list[dict[str, Any]]:
-        return self._rows(self.client.execute(
+        reports = self._rows(self.client.execute(
             "SELECT q.id, q.url, q.full_name, q.status, r.anomaly_score, r.raw_json, r.markdown_report FROM queue q JOIN results r ON r.repo_id=q.id WHERE r.anomaly_score > 50 AND q.status NOT IN ('safe', 'malicious_confirmed') ORDER BY r.anomaly_score DESC"
         ))
+        for report in reports:
+            try:
+                findings = json.loads(report["raw_json"]).get("findings", [])
+            except (TypeError, json.JSONDecodeError):
+                findings = []
+            report["finding_count"] = len(findings) if isinstance(findings, list) else 0
+        return reports
 
     def report(self, repo_id: int) -> dict[str, Any] | None:
         return self._one(self.client.execute(
@@ -297,11 +304,14 @@ class Store:
     def queue_stats(self) -> dict[str, int]:
         rows = self._rows(self.client.execute("SELECT status, COUNT(*) AS count FROM queue GROUP BY status"))
         stats = {str(row["status"]): int(row["count"]) for row in rows}
+        active_reports = self.reports()
         return {
             "pending": stats.get("pending", 0),
             "scanning": stats.get("scanning", 0),
             "completed": stats.get("completed", 0),
             "failed": stats.get("failed", 0),
             "reviewed": stats.get("safe", 0) + stats.get("malicious_confirmed", 0),
+            "alerts": len(active_reports),
+            "findings": sum(int(report["finding_count"]) for report in active_reports),
             "total": sum(stats.values()),
         }

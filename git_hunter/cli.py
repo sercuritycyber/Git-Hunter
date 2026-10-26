@@ -341,6 +341,7 @@ def main() -> None:
     worker = sub.add_parser("worker")
     worker.add_argument("--once", action="store_true")
     dashboard = sub.add_parser("dashboard")
+    dashboard.add_argument("--host", default="127.0.0.1")
     dashboard.add_argument("--port", type=int, default=8080)
     args = parser.parse_args()
     store = Store(args.db)
@@ -357,7 +358,7 @@ def main() -> None:
         Dashboard.github_client = client
         Dashboard.state.stop()
         shutdown_event = threading.Event()
-        server = ThreadingHTTPServer(("127.0.0.1", args.port), Dashboard)
+        server = ThreadingHTTPServer((args.host, args.port), Dashboard)
         spider_thread = threading.Thread(
             target=run_wanderer,
             args=(store, Dashboard.state.spider_event),

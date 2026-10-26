@@ -14,6 +14,21 @@ git-hunter dashboard
 
 Run `git-hunter` or `git-hunter dashboard` and open `http://127.0.0.1:8080`. The localhost Admin Center opens stopped, so no secret is needed in the command line or shell history. Use Settings to enter a GitHub token and optional Turso URL/auth token, then use the Start system control. Secrets are held in process memory and are not written to queue or report records. The localhost Admin Center provides Overview, Live Analysis, Review Queue, Targets, and Settings dashboards. The Live Analysis view shows the repository being fetched, analysis stage, files discovered, source preview, and current codebase. Markdown reports are stored in the configured database. Set `COLD_STORAGE_PATH=/mnt/quarantine` for the Proxmox cold-storage mount.
 
+## Kali Linux service mode
+
+For a persistent local service, install the example unit and run the dashboard under systemd:
+
+```bash
+sudo useradd --system --home /opt/git-hunter --shell /usr/sbin/nologin git-hunter
+sudo install -d -o git-hunter -g git-hunter /opt/git-hunter /var/lib/git-hunter /etc/git-hunter
+sudo install -m 0644 contrib/git-hunter.service /etc/systemd/system/git-hunter.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now git-hunter
+systemctl status git-hunter
+```
+
+Set `GITHUB_TOKEN`, `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, and `COLD_STORAGE_PATH` in `/etc/git-hunter/git-hunter.env`. The unit binds the dashboard to loopback; use an authenticated reverse proxy if remote access is required.
+
 ## Current scope
 
 - GitHub Search API discovery with author repositories and forks added to the queue.
