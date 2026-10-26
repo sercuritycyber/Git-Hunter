@@ -263,8 +263,6 @@ def run_wanderer(
     shutdown_event: Any | None = None,
 ) -> None:
     client = client or GitHubClient()
-    visited_users: set[str] = set()
-    frontier: deque[str] = deque()
     while shutdown_event is None or not shutdown_event.is_set():
         if not run_event.is_set():
             if hasattr(run_event, "wait"):
@@ -284,6 +282,8 @@ def run_wanderer(
                     )
                 _wait_for_control(run_event, shutdown_event, BACKPRESSURE_SLEEP_SECONDS)
                 continue
+            visited_users: set[str] = set()
+            frontier: deque[str] = deque()
             added = wander_once(
                 store,
                 client,

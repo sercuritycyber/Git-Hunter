@@ -187,6 +187,67 @@ def test_wanderer_uses_only_remaining_queue_capacity(tmp_path):
     assert messages == ["Wanderer cycle queued 8 repositories"]
 
 
+def test_wanderer_refreshes_search_frontier_each_cycle():
+    class CyclingClient(FakeClient):
+        def __init__(self):
+            super().__init__()
+            self.cycles = 0
+
+        def search(self, query, limit):
+            self.cycles += 1
+            return [{
+                "owner": {"login": f"alice-{self.cycles}"},
+            }]
+
+        def user_repositories(self, username):
+            return [{
+                "full_name": f"{username}/repo",
+                "html_url": f"https://github.com/{username}/repo",
+                "size": 1,
+            }]
+
+    class Store:
+        def __init__(self):
+            self.urls = set()
+
+        def pending_count(self):
+            return 0
+
+        def contains_url(self, url):
+            return url in self.urls
+
+        def enqueue(self, url, full_name, priority):
+            if url in self.urls:
+                return False
+            self.urls.add(url)
+            return True
+
+    client = CyclingClient()
+    store = Store()
+    run_event = threading.Event()
+    run_event.set()
+    shutdown_event = threading.Event()
+    cycles = []
+
+    def stop_after_two_cycles(message):
+        cycles.append(message)
+        if len(cycles) == 2:
+            shutdown_event.set()
+
+    run_wanderer(
+        store,
+        run_event,
+        interval_seconds=0,
+        client=client,
+        limit=lambda: 1,
+        status=stop_after_two_cycles,
+        shutdown_event=shutdown_event,
+    )
+
+    assert client.cycles == 2
+    assert len(store.urls) == 2
+
+
 def test_wanderer_preserves_relationship_frontier_when_batch_fills(tmp_path):
     class RelatedClient(FakeClient):
         def user_repositories(self, username):
