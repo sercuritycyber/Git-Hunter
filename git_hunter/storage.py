@@ -6,7 +6,7 @@ import os
 import threading
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote, urlparse
+from urllib.parse import unquote, urlparse, urlunsplit
 
 import libsql_client
 
@@ -101,7 +101,15 @@ class Store:
         )
 
     def _create_client(self, url: str, token: str | None) -> Any:
-        return libsql_client.create_client_sync(url, auth_token=token)
+        parsed = urlparse(url)
+        client_url = urlunsplit((
+            "https" if parsed.scheme == "libsql" else parsed.scheme,
+            parsed.netloc,
+            parsed.path,
+            parsed.query,
+            parsed.fragment,
+        ))
+        return libsql_client.create_client_sync(client_url, auth_token=token)
 
     def _initialize_client(self) -> None:
         with self._schema_lock:

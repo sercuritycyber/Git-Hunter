@@ -147,3 +147,17 @@ def test_connection_errors_do_not_expose_database_error_details():
     assert "super-secret" not in message
     assert "RuntimeError" in message
     assert "example.turso.io" in message
+
+
+def test_turso_libsql_urls_use_sql_over_http(tmp_path, monkeypatch):
+    captured = []
+
+    def create_client(url, auth_token=None):
+        captured.append((url, auth_token))
+        return object()
+
+    monkeypatch.setattr("git_hunter.storage.libsql_client.create_client_sync", create_client)
+    store = object.__new__(Store)
+    store._create_client("libsql://example.turso.io/db", "token")
+
+    assert captured[-1] == ("https://example.turso.io/db", "token")
