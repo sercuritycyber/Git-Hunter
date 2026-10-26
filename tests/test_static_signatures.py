@@ -68,8 +68,8 @@ def test_python_reverse_shell_and_exfiltration_signatures():
 
     findings = scan_source(
         "import socket; subprocess.dup2(sock, 0)\n"
-        "https://discord.com/api/webhooks/123456/token\n"
-        "https://api.telegram.org/bot123:token/sendMessage\n"
+        "requests.post('https://discord.com/api/webhooks/123456/token')\n"
+        "requests.post('https://api.telegram.org/bot123:token/sendMessage')\n"
     )
 
     names = {finding["detail"] for finding in findings}
@@ -84,3 +84,12 @@ def test_static_signature_weights_match_proposed_severity():
     findings = scan_source("curl https://discord.com/api/webhooks/123/token\n")
 
     assert findings[0]["weight"] == 60
+
+
+def test_network_endpoint_assignment_is_not_behavior():
+    from git_hunter.signatures import scan_source
+
+    assert scan_source(
+        "webhook = 'https://discord.com/api/webhooks/123/token'\n"
+        "telegram = 'https://api.telegram.org/bot123:token/sendMessage'\n"
+    ) == []

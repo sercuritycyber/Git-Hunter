@@ -50,6 +50,20 @@ def test_github_requests_send_the_configured_bearer_token(monkeypatch):
     assert requests[0].get_header("Authorization") == "Bearer sentinel-token"
 
 
+def test_malformed_rate_limit_remaining_header_does_not_crash(monkeypatch):
+    class Response(_Response):
+        headers = {"x-ratelimit-remaining": "unknown"}
+
+    def fake_urlopen(request, timeout):
+        return Response(b'{"items": []}')
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    client = GitHubClient("sentinel-token")
+
+    assert client.search("language:python", 1) == []
+    assert client.rate_limit_remaining is None
+
+
 def test_repository_sources_fetches_one_in_memory_zipball(monkeypatch):
     archive = io.BytesIO()
     with zipfile.ZipFile(archive, "w") as compressed:

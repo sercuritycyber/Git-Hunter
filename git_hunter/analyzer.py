@@ -77,9 +77,14 @@ class PythonAnalyzer(ast.NodeVisitor):
     def visit_Call(self, node: ast.Call) -> Any:
         name = self._call_name(node)
         if name in SINKS:
-            traced = next((self._payload_metadata(argument) for argument in node.args if self._payload_metadata(argument)), None)
+            arguments = [*node.args, *(keyword.value for keyword in node.keywords)]
+            traced = next((self._payload_metadata(argument) for argument in arguments if self._payload_metadata(argument)), None)
             if traced:
-                source_var = next((argument.id for argument in node.args if isinstance(argument, ast.Name) and argument.id in self.tracked_vars), None)
+                source_var = next((
+                    argument.id
+                    for argument in arguments
+                    if isinstance(argument, ast.Name) and argument.id in self.tracked_vars
+                ), None)
                 self.findings.append({
                     "line": node.lineno,
                     "sink": name,

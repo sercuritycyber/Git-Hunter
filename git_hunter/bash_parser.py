@@ -70,14 +70,18 @@ class BashAnalyzer:
                 "entropy": metadata["entropy"],
             })
             return
-        direct_blob = next((token.strip("'\"") for token in arguments.split() if BLOB_PATTERN.fullmatch(token.strip("'\""))), None)
+        direct_blob = next((
+            _blob_metadata(token, line_number)
+            for token in arguments.split()
+            if BLOB_PATTERN.fullmatch(token.strip("'\""))
+        ), None)
         if direct_blob:
             self.findings.append({
                 "line": line_number,
                 "sink": sink,
                 "kind": "direct_execution_sink",
                 "source_line": line_number,
-                "entropy": _entropy(direct_blob),
+                "entropy": direct_blob["entropy"],
             })
             return
         # A shell execution primitive is not malicious by itself. Without a

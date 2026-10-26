@@ -52,7 +52,10 @@ class GitHubClient:
         with urllib.request.urlopen(request, timeout=20) as response:
             remaining = response.headers.get("x-ratelimit-remaining")
             if remaining is not None:
-                self.rate_limit_remaining = int(remaining)
+                try:
+                    self.rate_limit_remaining = int(remaining)
+                except (TypeError, ValueError):
+                    LOGGER.warning("[*] GitHub returned an invalid rate-limit value")
             return json.load(response)
 
     @staticmethod

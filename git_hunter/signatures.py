@@ -20,7 +20,7 @@ NETWORK_CALLBACKS = {
 NETWORK_ACTION = re.compile(
     r"\b(?:curl|wget|fetch|axios|requests?\.(?:get|post|put|request)|"
     r"urlopen\s*\(|urllib\.[A-Za-z_]+\s*\(|WebClient|XMLHttpRequest|"
-    r"sendBeacon|sendMessage)\b",
+    r"sendBeacon\s*\(|sendMessage\s*\()",
     re.IGNORECASE,
 )
 
@@ -94,8 +94,11 @@ def scan_source(source_code: str) -> list[dict[str, object]]:
             continue
         for signature in SIGNATURES:
             if signature.pattern.search(line):
-                is_callback = signature.name.endswith(" callback")
-                if is_callback and not NETWORK_ACTION.search(line):
+                is_network_endpoint = any(
+                    marker in signature.name.lower()
+                    for marker in ("callback", "exfiltration")
+                )
+                if is_network_endpoint and not NETWORK_ACTION.search(line):
                     continue
                 findings.append({
                     "line": line_number,

@@ -69,3 +69,13 @@ def test_annotated_python_assignments_are_tracked():
 
     assert result["anomaly_score"] == 75
     assert result["findings"][0]["kind"] == "traced_execution_sink"
+
+
+def test_keyword_payloads_reach_python_sinks():
+    blob = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/" * 2
+    result = analyze_python_sources({
+        "keyword.py": f"payload = base64.b64decode('{blob}')\nexec(source=payload)\n",
+    })
+
+    assert result["anomaly_score"] == 75
+    assert result["findings"][0]["kind"] == "traced_execution_sink"
