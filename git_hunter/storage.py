@@ -11,12 +11,18 @@ import libsql_client
 
 SCHEMA = """
 PRAGMA foreign_keys = ON;
+CREATE TABLE IF NOT EXISTS schema_metadata (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS queue (
     id INTEGER PRIMARY KEY,
     url TEXT NOT NULL UNIQUE,
     full_name TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'scanning', 'completed', 'failed', 'malicious_confirmed', 'safe')),
     priority INTEGER NOT NULL DEFAULT 0
+    ,failure_stage TEXT
+    ,failure_reason TEXT
 );
 CREATE TABLE IF NOT EXISTS results (
     repo_id INTEGER PRIMARY KEY REFERENCES queue(id),
@@ -49,6 +55,7 @@ class Store:
         self._auth_token = token
         self.auth_token_configured = bool(token)
         self._claim_lock = threading.Lock()
+        self._schema_lock = threading.Lock()
         try:
             self.client = self._create_client(url, token)
         except Exception as error:
@@ -93,12 +100,23 @@ class Store:
         return libsql_client.create_client_sync(url, auth_token=token)
 
     def _initialize_client(self) -> None:
-        execute_batch = getattr(self.client, "execute_batch", None)
-        if execute_batch:
-            execute_batch(SCHEMA)
-        else:
-            statements = [statement.strip() for statement in SCHEMA.split(";") if statement.strip()]
-            self.client.batch(statements)
+        with self._schema_lock:
+            marker = self._one(self.client.execute(
+                "SELECT value FROM schema_metadata WHERE key = ?",
+                ("schema_version",),
+            )) if self._table_exists("schema_metadata") else None
+            if marker is None:
+                execute_batch = getattr(self.client, "execute_batch", None)
+                if execute_batch:
+                    execute_batch(SCHEMA)
+                else:
+                    statements = [statement.strip() for statement in SCHEMA.split(";") if statement.strip()]
+                    self.client.batch(statements)
+                self.client.execute(
+                    "INSERT OR REPLACE INTO schema_metadata(key, value) VALUES (?, ?)",
+                    ("schema_version", "1"),
+                )
+            self._verify_schema()
         executor = getattr(self.client, "_executor", None)
         thread = getattr(executor, "_thread", None)
         if thread is not None:
@@ -107,9 +125,34 @@ class Store:
         if register_shutdown is not None:
             register_shutdown(self.client.close)
 
+    def _table_exists(self, name: str) -> bool:
+        return self._one(self.client.execute(
+            "SELECT name FROM sqlite_master WHERE type = ? AND name = ?",
+            ("table", name),
+        )) is not None
+
+    def _verify_schema(self) -> None:
+        columns = {
+            str(row["name"]) for row in self._rows(self.client.execute("PRAGMA table_info(queue)"))
+        }
+        migrations = {
+            "failure_stage": "ALTER TABLE queue ADD COLUMN failure_stage TEXT",
+            "failure_reason": "ALTER TABLE queue ADD COLUMN failure_reason TEXT",
+        }
+        for column, statement in migrations.items():
+            if column not in columns:
+                self.client.execute(statement)
+        required_tables = {"schema_metadata", "queue", "results"}
+        missing = sorted(table for table in required_tables if not self._table_exists(table))
+        if missing:
+            raise RuntimeError(f"Database schema is incomplete; missing tables: {', '.join(missing)}")
+
     def reconfigure(self, url: str, token: str | None = None) -> None:
-        if not url.startswith(("libsql://", "https://", "file:")):
-            raise ValueError("database URL must be a libsql, https, or file URL")
+        parsed = urlparse(url)
+        if parsed.scheme not in {"libsql", "file"} or (parsed.scheme == "libsql" and not parsed.netloc):
+            raise ValueError("database URL must be a libsql URL or a local file URL")
+        if token is None and url != self.database_url:
+            raise ValueError("enter the auth token again when changing the database URL")
         if token is None:
             token = self._auth_token
         self._prepare_local_database(url)
@@ -189,8 +232,11 @@ class Store:
         )
         self.client.execute("UPDATE queue SET status='completed' WHERE id=?", (repo_id,))
 
-    def fail(self, repo_id: int) -> None:
-        self.client.execute("UPDATE queue SET status='failed' WHERE id=?", (repo_id,))
+    def fail(self, repo_id: int, stage: str = "unknown", reason: str = "analysis_failed") -> None:
+        self.client.execute(
+            "UPDATE queue SET status='failed', failure_stage=?, failure_reason=? WHERE id=?",
+            (stage[:80], reason[:120], repo_id),
+        )
 
     def review(self, repo_id: int, status: str) -> None:
         if status not in {"malicious_confirmed", "safe"}:
@@ -224,7 +270,7 @@ class Store:
             raise ValueError("unsupported queue status")
         bounded_limit = max(1, min(int(limit), 200))
         return self._rows(self.client.execute(
-            "SELECT id, url, full_name, status, priority FROM queue "
+            "SELECT id, url, full_name, status, priority, failure_stage, failure_reason FROM queue "
             "WHERE status = ? ORDER BY id DESC LIMIT ?",
             (status, bounded_limit),
         ))

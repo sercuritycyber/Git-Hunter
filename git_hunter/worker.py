@@ -60,14 +60,17 @@ def process_next(
     if not row:
         return False
     full_name = row["full_name"]
+    stage = "claim"
     def update(**values: Any) -> None:
         if progress:
             progress({"repo_id": row["id"], "full_name": full_name, **values})
 
     try:
+        stage = "fetching"
         update(stage="fetching", message="Fetching repository tree", files_scanned=0)
         source_extensions = extensions() if extensions else (".py", ".sh", ".bash", ".js", ".json")
         sources = client.repository_sources(full_name, source_extensions)
+        stage = "analyzing"
         update(
             stage="analyzing",
             message="Analyzing repository sources",
@@ -76,6 +79,7 @@ def process_next(
             source_preview=next(iter(sources.values()), "")[:4000],
         )
         result = analyze_repository_sources(sources)
+        stage = "enriching"
         update(
             stage="enriching",
             message="Preparing findings and summary",
@@ -88,11 +92,11 @@ def process_next(
         store.save_result(row["id"], result, report)
         update(stage="completed", message="Analysis complete", anomaly_score=result["anomaly_score"])
         LOGGER.info("[+] Completed %s with score %s", full_name, result["anomaly_score"])
-    except Exception:
+    except Exception as error:
         update(stage="failed", message="Analysis failed")
         LOGGER.exception("[-] Scan failed for %s", full_name)
         try:
-            store.fail(row["id"])
+            store.fail(row["id"], stage=stage, reason=type(error).__name__)
         except Exception:
             LOGGER.exception("[-] Could not mark %s as failed", full_name)
     return True

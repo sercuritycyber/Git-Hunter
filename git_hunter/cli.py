@@ -18,6 +18,7 @@ from .worker import run_worker
 
 
 LOGGER = logging.getLogger(__name__)
+MAX_REQUEST_BODY_BYTES = 64 * 1024
 
 
 class RuntimeState:
@@ -102,6 +103,23 @@ class Dashboard(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(encoded)
 
+    def _read_json_body(self) -> object | None:
+        raw_length = self.headers.get("Content-Length")
+        try:
+            length = int(raw_length or "0")
+        except ValueError:
+            self.send_error(400, "invalid Content-Length")
+            return None
+        if length < 0 or length > MAX_REQUEST_BODY_BYTES:
+            self.send_error(413, "request body is too large")
+            return None
+        try:
+            body = self.rfile.read(length)
+            return json.loads(body or b"{}")
+        except json.JSONDecodeError:
+            self.send_error(400, "invalid JSON")
+            return None
+
     def do_GET(self) -> None:
         path = urlparse(self.path).path
         if path == "/api/reports":
@@ -169,11 +187,8 @@ class Dashboard(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         path = urlparse(self.path).path
         if path in {"/api/config", "/api/setup", "/api/system/start", "/api/system/stop"}:
-            length = int(self.headers.get("Content-Length", "0"))
-            try:
-                payload = json.loads(self.rfile.read(length) or b"{}")
-            except json.JSONDecodeError:
-                self.send_error(400, "invalid JSON")
+            payload = self._read_json_body()
+            if payload is None:
                 return
             if path == "/api/config":
                 if not isinstance(payload, dict):
@@ -236,8 +251,10 @@ class Dashboard(BaseHTTPRequestHandler):
                 if database_url is not None or database_token is not None:
                     if database_url is None:
                         database_url = self.store.database_url
-                    if not isinstance(database_url, str) or not database_url.startswith(("libsql://", "https://", "file:")):
-                        self.send_error(400, "turso_database_url must be a libsql, https, or file URL")
+                    if isinstance(database_url, str):
+                        database_url = database_url.strip()
+                    if not isinstance(database_url, str) or not database_url.startswith(("libsql://", "file:")):
+                        self.send_error(400, "turso_database_url must be a libsql or file URL")
                         return
                     if database_token is not None and (
                         not isinstance(database_token, str) or not database_token.strip()
@@ -247,7 +264,7 @@ class Dashboard(BaseHTTPRequestHandler):
                     self.state.stop()
                     try:
                         self.store.reconfigure(database_url, database_token.strip() if database_token else None)
-                    except Exception as error:
+                    except (RuntimeError, ValueError) as error:
                         LOGGER.exception("[-] Could not configure database")
                         self.send_error(502, f"database connection failed: {error}")
                         return
@@ -283,12 +300,14 @@ class Dashboard(BaseHTTPRequestHandler):
             return
         try:
             repo_id = int(path.rsplit("/", 1)[1])
-            length = int(self.headers.get("Content-Length", "0"))
-            body = json.loads(self.rfile.read(length))
-            decision = body.get("decision", body.get("status"))
-        except (ValueError, KeyError, json.JSONDecodeError):
+        except ValueError:
             self.send_error(400, "invalid review request")
             return
+        body = self._read_json_body()
+        if not isinstance(body, dict):
+            self.send_error(400, "invalid review request")
+            return
+        decision = body.get("decision", body.get("status"))
         if decision not in {"malicious_confirmed", "safe"}:
             self.send_error(400, "decision must be malicious_confirmed or safe")
             return
